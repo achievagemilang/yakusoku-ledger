@@ -1,0 +1,229 @@
+
+jq --version > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+	echo "Please Install 'jq' https://stedolan.github.io/jq/ to execute this script"
+	echo
+	exit 1
+fi
+starttime=$(date +%s)
+
+echo "POST request Enroll on Org1  ..."
+echo
+ORG1_TOKEN=$(curl -s -X POST \
+  http://localhost:4000/users \
+  -H "content-type: application/x-www-form-urlencoded" \
+  -d 'username=user1A&orgName=org1')
+echo $ORG1_TOKEN
+ORG1_TOKEN=$(echo $ORG1_TOKEN | jq ".token" | sed "s/\"//g")
+echo
+echo "ORG1 token is $ORG1_TOKEN"
+echo
+echo "POST request Enroll on Org2 ..."
+echo
+ORG2_TOKEN=$(curl -s -X POST \
+  http://localhost:4000/users \
+  -H "content-type: application/x-www-form-urlencoded" \
+  -d 'username=user2B&orgName=org2')
+echo $ORG2_TOKEN
+ORG2_TOKEN=$(echo $ORG2_TOKEN | jq ".token" | sed "s/\"//g")
+echo
+echo "ORG2 token is $ORG2_TOKEN"
+echo
+echo
+echo "POST request Create channel  ..."
+echo
+
+curl -s -X POST \
+  http://localhost:4000/channels \
+  -H "authorization: Bearer $ORG1_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{
+	"channelName":"channel1",
+	"channelConfigPath":"../../fabric/channel-artifacts/channel/channel.tx"
+}'
+echo
+echo
+sleep 10
+
+
+echo "POST request Join channel on Org1"
+echo
+curl -s -X POST \
+  http://localhost:4000/channels/channel1/peers \
+  -H "authorization: Bearer $ORG1_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{
+	"peers": ["peer1","peer2"]
+}'
+echo
+echo
+
+echo "POST request Join channel on Org2"
+echo
+curl -s -X POST \
+  http://localhost:4000/channels/channel1/peers \
+  -H "authorization: Bearer $ORG2_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{
+	"peers": ["peer1","peer2"]
+}'
+ echo
+echo
+
+echo "POST Install chaincode on Org1"
+echo
+curl -s -X POST \
+  http://localhost:4000/chaincodes \
+  -H "authorization: Bearer $ORG1_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{
+	"peers": ["peer1", "peer2"],
+	"chaincodeName":"studentuniversity",
+	"chaincodePath":"chaincode/",
+	"chaincodeVersion":"v0"
+}'
+echo
+echo
+
+
+echo "POST Install chaincode on Org2"
+echo
+curl -s -X POST \
+  http://localhost:4000/chaincodes \
+  -H "authorization: Bearer $ORG2_TOKEN" \
+  -H "content-type: application/json" \
+  -d '{
+	"peers": ["peer1","peer2"],
+	"chaincodeName":"studentuniversity",
+	"chaincodePath":"chaincode/",
+	"chaincodeVersion":"v0"
+}'
+echo
+echo
+
+# echo "POST instantiate chaincode on peer1 of Org1"
+# echo
+# curl -s -X POST \
+#   http://localhost:4000/channels/channel1/chaincodes \
+#   -H "authorization: Bearer $ORG1_TOKEN" \
+#   -H "content-type: application/json" \
+#   -d '{
+# 	"peers":["peer1","peer2"],
+# 	"chaincodeName":"buysell4",
+# 	"chaincodeVersion":"v0",
+# 	"fcn":"Init",
+# 	"args":["CustomerA","ShipperA","12th July 2019","500", "110000012"]
+# }'
+# echo
+# echo
+#
+# echo "POST invoke chaincode on peers of Org1 and Org2"
+# echo
+# TRX_ID=$(curl -s -X POST \
+#   http://localhost:4000/channels/channel1/chaincodes/buysell4 \
+#   -H "authorization: Bearer $ORG1_TOKEN" \
+#   -H "content-type: application/json" \
+#   -d '{
+# 	"fcn":"invokeFunctionBuySell",
+# 	"args":["c953f3d49f60302bcdd1506fb10112ccae9564fa1fa985ad1372218aad32b48a"]
+# }')
+# echo "Transacton ID is $TRX_ID"
+# echo
+# echo
+#
+#
+# echo "POST upload file to IPFS"
+# echo
+# TRX_ID=$(curl -s -X POST \
+#   http://localhost:4000/channels/channel1/uploadContract \
+#   -H "authorization: Bearer $ORG1_TOKEN" \
+#   -H "content-type: multipart/form-data" \
+#   -F "file=uchiha.jpg")
+# echo "Transacton ID is $TRX_ID"
+# echo
+# echo
+#
+#
+#
+# echo "GET query chaincode on peer1 of Org1"
+# echo
+# curl -s -X GET \
+#   "http://localhost:4000/channels/channel1/chaincodes/buysell4?peer=peer1&fcn=getHistoryForBuySell&args=%5B%22CustomerA%22%2C%22ShipperA%22%5D" \
+#   -H "authorization: Bearer $ORG1_TOKEN" \
+#   -H "content-type: application/json"
+# echo
+# echo
+#
+# echo "GET query Block by blockNumber"
+# echo
+# curl -s -X GET \
+#   "http://localhost:4000/channels/channel1/blocks/1?peer=peer1" \
+#   -H "authorization: Bearer $ORG1_TOKEN" \
+#   -H "content-type: application/json"
+# echo
+# echo
+#
+# echo "GET query Transaction by TransactionID"
+# echo
+# curl -s -X GET http://localhost:4000/channels/channel1/transactions/$TRX_ID?peer=peer1 \
+#   -H "authorization: Bearer $ORG1_TOKEN" \
+#   -H "content-type: application/json"
+# echo
+# echo
+
+
+
+
+############################################################################
+### TODO: What to pass to fetch the Block information
+############################################################################
+# echo "GET query Block by Hash"
+# echo
+# hash=????
+# curl -s -X GET \
+#  "http://localhost:4000/channels/channel1/blocks?hash=$hash&peer=peer1" \
+#  -H "authorization: Bearer $ORG1_TOKEN" \
+#  -H "cache-control: no-cache" \
+#  -H "content-type: application/json" \
+#  -H "x-access-token: $ORG1_TOKEN"
+# echo
+# echo
+
+# echo "GET query ChainInfo"
+# echo
+# curl -s -X GET \
+#   "http://localhost:4000/channels/channel1?peer=peer1" \
+#   -H "authorization: Bearer $ORG1_TOKEN" \
+#   -H "content-type: application/json"
+# echo
+# echo
+
+# echo "GET query Installed chaincodes"
+# echo
+# curl -s -X GET \
+#   "http://localhost:4000/chaincodes?peer=peer1&type=installed" \
+#   -H "authorization: Bearer $ORG1_TOKEN" \
+#   -H "content-type: application/json"
+# echo
+# echo
+#
+# echo "GET query Instantiated chaincodes"
+# echo
+# curl -s -X GET \
+#   "http://localhost:4000/chaincodes?peer=peer1&type=instantiated" \
+#   -H "authorization: Bearer $ORG1_TOKEN" \
+#   -H "content-type: application/json"
+# echo
+# echo
+#
+# echo "GET query Channels"
+# echo
+# curl -s -X GET \
+#   "http://localhost:4000/channels?peer=peer1" \
+#   -H "authorization: Bearer $ORG1_TOKEN" \
+#   -H "content-type: application/json"
+# echo
+# echo
+
+
+ echo "Total execution time : $(($(date +%s)-starttime)) secs ..."
