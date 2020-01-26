@@ -3,7 +3,7 @@
 		"orderer": {
 			"url": "grpcs://localhost:7050",
 			"server-hostname": "orderer.clemson.com",
-			"tls_cacerts": "../../fabric/channel-artifacts/certs/ordererOrganizations/chainergy.com/orderers/orderer.chainergy.com/tls/ca.crt"
+			"tls_cacerts": "../../fabric/channel-artifacts/certs/ordererOrganizations/clemson.com/orderers/orderer.clemson.com/tls/ca.crt"
 		},
 		"org1": {
 			"name": "UniversityMSP",
@@ -19,7 +19,7 @@
 				"peer2": {
 					"requests": "grpcs://localhost:8051",
 					"events": "grpcs://localhost:8053",
-					"server-hostname": "peer1.university.chainergy.com",
+					"server-hostname": "peer1.university.clemson.com",
 					"tls_cacerts": "../../fabric/channel-artifacts/certs/peerOrganizations/university.clemson.com/peers/peer1.university.clemson.com/tls/ca.crt"
 				}
 			},

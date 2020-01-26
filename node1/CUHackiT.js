@@ -1,6 +1,10 @@
+
+'use strict';
 var log4js = require('log4js');
 var logger = log4js.getLogger('SampleWebApp');
 var express = require('express');
+var session = require('express-session');
+var cookieParser = require('cookie-parser');
 var bodyParser = require('body-parser');
 var http = require('http');
 var util = require('util');
@@ -9,7 +13,11 @@ var expressJWT = require('express-jwt');
 var jwt = require('jsonwebtoken');
 var bearerToken = require('express-bearer-token');
 var cors = require('cors');
+
+
+require('./config.js');
 var hfc = require('fabric-client');
+
 var helper = require('./app/helper.js');
 var channels = require('./app/create-channel.js');
 var join = require('./app/join-channel.js');
@@ -17,13 +25,25 @@ var install = require('./app/install-chaincode.js');
 var instantiate = require('./app/instantiate-chaincode.js');
 var invoke = require('./app/invoke-transaction.js');
 var query = require('./app/query.js');
+var host = process.env.HOST || hfc.getConfigSetting('host');
+var port = process.env.PORT || hfc.getConfigSetting('port');
+var fs = require("fs");
+var multer = require('multer');
 
+
+//////////////////////////////// SET CONFIGURATONS ////////////////////////////
 app.options('*', cors());
 app.use(cors());
+//support parsing of application/json type post data
 app.use(bodyParser.json());
+//support parsing of application/x-www-form-urlencoded post data
 app.use(bodyParser.urlencoded({
 	extended: false
 }));
+
+
+app.use(multer({dest:__dirname+'/upload/'}).any());
+
 
 
 function sleep(seconds){
@@ -33,17 +53,17 @@ function sleep(seconds){
 
 // set secret variable
 app.set('secret', 'thisismysecret');
-// app.use(expressJWT({
-// 	secret: 'thisismysecret'
-// }).unless({
-// 	path: ['/users']
-// }));
-// app.use(bearerToken());
-
+app.use(expressJWT({
+	secret: 'thisismysecret'
+}).unless({
+	path: ['/users']
+}));
+app.use(bearerToken());
 app.use(function(req, res, next) {
 	if (req.originalUrl.indexOf('/users') >= 0) {
 		return next();
 	}
+
 	var token = req.token;
 	jwt.verify(token, app.get('secret'), function(err, decoded) {
 		if (err) {
@@ -65,8 +85,14 @@ app.use(function(req, res, next) {
 	});
 });
 
-var server = http.createServer(app).listen(8080, function() {});
+
+
+
+//////////////////////////////// START SERVER /////////////////////////////////
+var server = http.createServer(app).listen(port, function() {});
 logger.info('****************** SERVER STARTED ************************');
+logger.info('**************  http://' + host + ':' + port +
+	'  ******************');
 server.timeout = 240000;
 
 function getErrorMessage(field) {
@@ -185,136 +211,6 @@ app.post('/chaincodes', function(req, res) {
 	}
 
 	install.installChaincode(peers, chaincodeName, chaincodePath, chaincodeVersion, req.username, req.orgname)
-	.then(function(message) {
-		res.send(message);
-	});
-});
-
-// Instantiate chaincode on target peers
-// Instantiate chaincode on target peers
-app.post('/channels/:channelName/chaincodes', async function(req, res) {
-	logger.debug('==================== INSTANTIATE CHAINCODE ==================');
-	var peers = req.body.peers;
-	var chaincodeName = req.body.chaincodeName;
-	var chaincodeVersion = req.body.chaincodeVersion;
-	var channelName = req.params.channelName;
-	// var chaincodeType = req.body.chaincodeType;
-	var fcn = req.body.fcn;
-	var args = req.body.args;
-	// var args = ["CustomerA","ShipperA","12th July 2019","500", "110000012",""];
-	// args[0]="CustomerA";
-	logger.debug('args  : ' + args);
-
-	logger.debug('peers  : ' + peers);
-	logger.debug('channelName  : ' + channelName);
-	logger.debug('chaincodeName : ' + chaincodeName);
-	logger.debug('chaincodeVersion  : ' + chaincodeVersion);
-	// logger.debug('chaincodeType  : ' + chaincodeType);
-	logger.debug('fcn  : ' + fcn);
-	if (!chaincodeName) {
-		res.json(getErrorMessage('\'chaincodeName\''));
-		return;
-	}
-	if (!chaincodeVersion) {
-		res.json(getErrorMessage('\'chaincodeVersion\''));
-		return;
-	}
-	if (!channelName) {
-		res.json(getErrorMessage('\'channelName\''));
-		return;
-	}
-	// ipfs.upload(process.cwd() + '/uchiha.jpg',function(err,data){
-	// 		if (err)
-	// 				logger.debug(err);
-	// 		else
-	// 		   args.push(data);
-	// 			 logger.debug("IPFS Hash is: " + args[5]);
-	// 			 sleep(20);
-
-	// });
-
-	if (!args) {
-		res.json(getErrorMessage('\'args\''));
-		return;
-	}
-
-	let message = await instantiate.instantiateChaincode(peers, channelName, chaincodeName, chaincodeVersion, fcn, args, req.username, req.orgname);
-	res.send(message);
-	// if (!chaincodeType) {
-	// 	res.json(getErrorMessage('\'chaincodeType\''));
-	// 	return;
-	// }
-
-});
-// Invoke transaction on chaincode on target peers
-app.post('/channels/:channelName/chaincodes/:chaincodeName', function(req, res) {
-	logger.debug('==================== INVOKE ON CHAINCODE ==================');
-	var peers = req.body.peers;
-	var chaincodeName = req.params.chaincodeName;
-	var channelName = req.params.channelName;
-	var fcn = req.body.fcn;
-	var args = req.body.args;
-	logger.debug('channelName  : ' + channelName);
-	logger.debug('chaincodeName : ' + chaincodeName);
-	logger.debug('fcn  : ' + fcn);
-	logger.debug('args  : ' + args);
-	if (!chaincodeName) {
-		res.json(getErrorMessage('\'chaincodeName\''));
-		return;
-	}
-	if (!channelName) {
-		res.json(getErrorMessage('\'channelName\''));
-		return;
-	}
-	if (!fcn) {
-		res.json(getErrorMessage('\'fcn\''));
-		return;
-	}
-	if (!args) {
-		res.json(getErrorMessage('\'args\''));
-		return;
-	}
-
-	invoke.invokeChaincode(peers, channelName, chaincodeName, fcn, args, req.username, req.orgname)
-	.then(function(message) {
-		res.send(message);
-	});
-});
-// Query by chaincode on target peers
-app.get('/channels/:channelName/chaincodes/:chaincodeName', function(req, res) {
-	logger.debug('==================== QUERY BY CHAINCODE ==================');
-	var channelName = req.params.channelName;
-	var chaincodeName = req.params.chaincodeName;
-	let args = req.query.args;
-	let fcn = req.query.fcn;
-	let peer = req.query.peer;
-
-	logger.debug('channelName : ' + channelName);
-	logger.debug('chaincodeName : ' + chaincodeName);
-	logger.debug('fcn : ' + fcn);
-	logger.debug('args : ' + args);
-
-	if (!chaincodeName) {
-		res.json(getErrorMessage('\'chaincodeName\''));
-		return;
-	}
-	if (!channelName) {
-		res.json(getErrorMessage('\'channelName\''));
-		return;
-	}
-	if (!fcn) {
-		res.json(getErrorMessage('\'fcn\''));
-		return;
-	}
-	if (!args) {
-		res.json(getErrorMessage('\'args\''));
-		return;
-	}
-	args = args.replace(/'/g, '"');
-	args = JSON.parse(args);
-	logger.debug(args);
-
-	query.queryChaincode(peer, channelName, chaincodeName, args, fcn, req.username, req.orgname)
 	.then(function(message) {
 		res.send(message);
 	});
