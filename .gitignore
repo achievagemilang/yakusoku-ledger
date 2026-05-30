@@ -1,0 +1,7 @@
+# Hyperledger Fabric crypto material — never commit private keys
+*.key
+*_sk
+*-priv
+**/keystore/*
+**/tls/*.key
+
