@@ -25,6 +25,8 @@ deeper documentation.
 ## Features
 
 - Responsive student and university dashboard with live ledger analytics
+- Multiple agreements per student/university pair with stable `AGR-...` references
+- Exact integer minor-unit money values with explicit ISO currencies
 - Client-side SHA-256 document hashing; agreement files never leave the browser
 - Submitted → approved/rejected workflow restricted to `UniversityMSP`
 - Immutable agreement version history and activity notifications
@@ -154,8 +156,10 @@ The runnable `node1/testAPI.sh` script contains request examples for the full wo
 
 | Function | Arguments | Behavior |
 | --- | --- | --- |
-| `Init` / `createAgreement` | student, email, date, amount, university, SHA-256 | Submit an agreement |
+| `Init` / `createAgreement` | reference, student, email, date, amount minor units, currency, university, SHA-256 | Submit an agreement |
 | `queryByStudentEmail` | email | Find agreements for an email |
+| `queryByStudentName` | student name | Find all agreements for a student |
+| `queryByUniversityName` | university name | Find all agreements for a university |
 | `queryAllAgreements` | none | Return dashboard and analytics records |
 | `getHistoryForStudent` | student name, university name | Return agreement history |
 | `getHistoryForAgreement` | agreement ID | Return the immutable audit trail |
@@ -172,6 +176,9 @@ node1/public/           Responsive web dashboard
 src/chaincode/          Student-university agreement chaincode
 docs/                   Screenshots and deeper product documentation
 ```
+
+Existing hash-keyed records and legacy `Amount` values remain readable. See the
+[v3 data migration guide](docs/MIGRATION.md) before upgrading a running network.
 
 ## Configuration
 

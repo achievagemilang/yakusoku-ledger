@@ -45,20 +45,29 @@ sleep 5
 request "$org1_token" POST /channels/channel1/peers '{"peers":["peer1","peer2"]}'
 request "$org2_token" POST /channels/channel1/peers '{"peers":["peer1","peer2"]}'
 
-chaincode='{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodePath":"chaincode","chaincodeVersion":"v2"}'
+chaincode='{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodePath":"chaincode","chaincodeVersion":"v3"}'
 request "$org1_token" POST /chaincodes "$chaincode"
 request "$org2_token" POST /chaincodes "$chaincode"
 
 request "$org1_token" POST /channels/channel1/chaincodes \
-	'{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodeVersion":"v2","fcn":"Init","args":["Genesis Student","genesis@example.com","2026-07-18","1","Clemson University"]}'
+	'{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodeVersion":"v3","fcn":"Init","args":["AGR-2026-000000000001","Genesis Student","genesis@example.com","2026-07-18","1","JPY","Clemson University",""]}'
 
 document_hash=$(printf 'yakusoku sample agreement' | sha256sum | cut -d ' ' -f1)
 create_response=$(request "$org2_token" POST /api/agreements \
-	"{\"studentName\":\"Ada Lovelace\",\"email\":\"ada@example.com\",\"date\":\"2026-08-01\",\"amount\":\"24000\",\"universityName\":\"Clemson University\",\"documentHash\":\"$document_hash\"}")
+	"{\"studentName\":\"Ada Lovelace\",\"email\":\"ada@example.com\",\"date\":\"2026-08-01\",\"amount\":\"24000\",\"currency\":\"USD\",\"universityName\":\"Clemson University\",\"documentHash\":\"$document_hash\"}")
 echo "$create_response"
 
+second_create_response=$(request "$org2_token" POST /api/agreements \
+	"{\"studentName\":\"Ada Lovelace\",\"email\":\"ada@example.com\",\"date\":\"2027-08-01\",\"amount\":\"25000.50\",\"currency\":\"USD\",\"universityName\":\"Clemson University\",\"documentHash\":\"$document_hash\"}")
+echo "$second_create_response"
+
 agreements=$(request "$org2_token" GET /api/agreements)
-agreement_id=$(printf '%s' "$agreements" | jq -er '.[] | select(.Value.Email == "ada@example.com") | .Key')
+agreement_count=$(printf '%s' "$agreements" | jq -er '[.[] | select(.Value.Email == "ada@example.com")] | length')
+if [ "$agreement_count" -ne 2 ]; then
+	echo "Expected two agreements for the same student/university pair, got $agreement_count"
+	exit 1
+fi
+agreement_id=$(printf '%s' "$agreements" | jq -er '[.[] | select(.Value.Email == "ada@example.com")][0].Key')
 request "$org2_token" POST "/api/agreements/$agreement_id/verify" \
 	"{\"documentHash\":\"$document_hash\"}"
 request "$org1_token" POST "/api/agreements/$agreement_id/review" \

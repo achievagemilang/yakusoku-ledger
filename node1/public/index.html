@@ -126,7 +126,8 @@
                 <label><span>Student name</span><input name="studentName" autocomplete="name" required placeholder="e.g. Aiko Tanaka"></label>
                 <label><span>Student email</span><input name="email" type="email" autocomplete="email" required placeholder="aiko@example.edu"></label>
                 <label class="full"><span>University</span><input name="university" required placeholder="e.g. Kyoto International University"></label>
-                <label><span>Agreement value (JPY)</span><input name="amount" type="number" min="1" step="1" inputmode="numeric" required placeholder="500000"></label>
+                <label><span>Agreement value</span><input name="amount" type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" required placeholder="500000"></label>
+                <label><span>Currency</span><select name="currency" required><option value="JPY">JPY</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="INR">INR</option><option value="CAD">CAD</option><option value="AUD">AUD</option><option value="KRW">KRW</option></select></label>
                 <label><span>Effective date</span><input name="date" type="date" required></label>
                 <label class="full file-field">
                   <span>Supporting document</span>
@@ -172,9 +173,9 @@
             <button class="text-button" id="clearActivity" type="button">Mark all read</button>
           </div>
           <ol class="timeline" id="activityList">
-            <li><span class="timeline-icon green">✓</span><div><strong>Document fingerprint verified</strong><p>AGR-2026-0241 matched its ledger record.</p><time datetime="2026-07-18T13:58:00-07:00">47 minutes ago</time></div></li>
+            <li><span class="timeline-icon green">✓</span><div><strong>Document fingerprint verified</strong><p>AGR-2026-0241ABCD0005 matched its ledger record.</p><time datetime="2026-07-18T13:58:00-07:00">47 minutes ago</time></div></li>
             <li><span class="timeline-icon vermilion">文</span><div><strong>New agreement submitted</strong><p>Mei Nakamura submitted an agreement with Waseda University.</p><time datetime="2026-07-18T11:45:00-07:00">3 hours ago</time></div></li>
-            <li><span class="timeline-icon amber">待</span><div><strong>Approval requested</strong><p>Agreement AGR-2026-0239 is waiting for university review.</p><time datetime="2026-07-17">Yesterday</time></div></li>
+            <li><span class="timeline-icon amber">待</span><div><strong>Approval requested</strong><p>Agreement AGR-2026-0239ABCD0006 is waiting for university review.</p><time datetime="2026-07-17">Yesterday</time></div></li>
           </ol>
         </section>
       </main>

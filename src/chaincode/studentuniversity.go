@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -19,7 +20,21 @@ const (
 	statusSubmitted = "submitted"
 	statusApproved  = "approved"
 	statusRejected  = "rejected"
+	maxSafeMinor    = int64(9007199254740991)
 )
+
+var agreementReferencePattern = regexp.MustCompile(`^AGR-[0-9]{4}-[A-F0-9]{12}$`)
+var currencyPattern = regexp.MustCompile(`^[A-Z]{3}$`)
+var supportedCurrencies = map[string]bool{
+	"AUD": true,
+	"CAD": true,
+	"EUR": true,
+	"GBP": true,
+	"INR": true,
+	"JPY": true,
+	"KRW": true,
+	"USD": true,
+}
 
 type StudentUniversityContract struct{}
 
@@ -28,7 +43,9 @@ type agreement struct {
 	StudentName    string  `json:"StudentName"`
 	UniversityName string  `json:"UniversityName"`
 	Date           string  `json:"Date"`
-	Amount         float64 `json:"Amount"`
+	AmountMinor    int64   `json:"AmountMinor,omitempty"`
+	Currency       string  `json:"Currency,omitempty"`
+	LegacyAmount   json.Number `json:"Amount,omitempty"`
 	Email          string  `json:"Email"`
 	DocumentHash   string  `json:"DocumentHash"`
 	Status         string  `json:"Status"`
@@ -51,8 +68,8 @@ type historyRecord struct {
 
 func (t *StudentUniversityContract) Init(stub shim.ChaincodeStubInterface) peer.Response {
 	_, args := stub.GetFunctionAndParameters()
-	if len(args) != 5 && len(args) != 6 {
-		return shim.Error("Incorrect number of arguments. Expecting 5 or 6")
+	if len(args) != 8 {
+		return shim.Error("Incorrect number of arguments. Expecting 8")
 	}
 	return t.createAgreement(stub, args, true)
 }
@@ -65,6 +82,10 @@ func (t *StudentUniversityContract) Invoke(stub shim.ChaincodeStubInterface) pee
 		return t.createAgreement(stub, args, false)
 	case "queryByStudentEmail":
 		return t.queryByStudentEmail(stub, args)
+	case "queryByStudentName":
+		return t.queryByStudentName(stub, args)
+	case "queryByUniversityName":
+		return t.queryByUniversityName(stub, args)
 	case "queryAllAgreements":
 		return t.queryAllAgreements(stub, args)
 	case "getHistoryForStudent":
@@ -83,33 +104,39 @@ func (t *StudentUniversityContract) Invoke(stub shim.ChaincodeStubInterface) pee
 }
 
 func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInterface, args []string, lifecycleInit bool) peer.Response {
-	if len(args) != 5 && len(args) != 6 {
-		return shim.Error("Incorrect number of arguments. Expecting 5 or 6")
+	if len(args) != 8 {
+		return shim.Error("Incorrect number of arguments. Expecting 8")
 	}
-	for i, arg := range args[:5] {
+	for i, arg := range args[:7] {
 		if strings.TrimSpace(arg) == "" {
 			return shim.Error(fmt.Sprintf("Argument %d must be a non-empty string", i+1))
 		}
 	}
 
-	amount, err := strconv.ParseFloat(args[3], 64)
-	if err != nil || amount <= 0 {
-		return shim.Error("4th argument must be a positive numeric string")
+	contractID := strings.ToUpper(strings.TrimSpace(args[0]))
+	if !agreementReferencePattern.MatchString(contractID) {
+		return shim.Error("1st argument must be an agreement reference like AGR-2026-12AB34CD56EF")
 	}
 
-	studentName := strings.ToLower(strings.TrimSpace(args[0]))
-	studentEmail := strings.ToLower(strings.TrimSpace(args[1]))
-	currentDate := strings.TrimSpace(args[2])
-	if _, err = time.Parse("2006-01-02", currentDate); err != nil {
-		return shim.Error("3rd argument must be an ISO date in YYYY-MM-DD format")
+	studentName := strings.ToLower(strings.TrimSpace(args[1]))
+	studentEmail := strings.ToLower(strings.TrimSpace(args[2]))
+	currentDate := strings.TrimSpace(args[3])
+	if _, err := time.Parse("2006-01-02", currentDate); err != nil {
+		return shim.Error("4th argument must be an ISO date in YYYY-MM-DD format")
 	}
-	universityName := strings.ToLower(strings.TrimSpace(args[4]))
-	documentHash := ""
-	if len(args) == 6 {
-		documentHash = strings.ToLower(strings.TrimSpace(args[5]))
-		if documentHash != "" && !isSHA256(documentHash) {
-			return shim.Error("6th argument must be an empty value or a SHA-256 hash")
-		}
+
+	amountMinor, err := strconv.ParseInt(strings.TrimSpace(args[4]), 10, 64)
+	if err != nil || amountMinor <= 0 || amountMinor > maxSafeMinor {
+		return shim.Error("5th argument must be a positive safe integer in minor currency units")
+	}
+	currency := strings.ToUpper(strings.TrimSpace(args[5]))
+	if !currencyPattern.MatchString(currency) || !supportedCurrencies[currency] {
+		return shim.Error("6th argument must be a supported ISO currency code")
+	}
+	universityName := strings.ToLower(strings.TrimSpace(args[6]))
+	documentHash := strings.ToLower(strings.TrimSpace(args[7]))
+	if documentHash != "" && !isSHA256(documentHash) {
+		return shim.Error("8th argument must be an empty value or a SHA-256 hash")
 	}
 
 	creatorMSP, err := cid.GetMSPID(stub)
@@ -124,13 +151,12 @@ func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInter
 		return shim.Error(err.Error())
 	}
 
-	contractID := agreementID(studentName, universityName)
 	existing, err := stub.GetState(contractID)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
 	if existing != nil {
-		return shim.Error("An agreement already exists for this student and university")
+		return shim.Error("Agreement reference already exists: " + contractID)
 	}
 
 	record := agreement{
@@ -138,7 +164,8 @@ func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInter
 		StudentName:    studentName,
 		UniversityName: universityName,
 		Date:           currentDate,
-		Amount:         amount,
+		AmountMinor:    amountMinor,
+		Currency:       currency,
 		Email:          studentEmail,
 		DocumentHash:   documentHash,
 		Status:         statusSubmitted,
@@ -227,11 +254,23 @@ func (t *StudentUniversityContract) verifyDocument(stub shim.ChaincodeStubInterf
 }
 
 func (t *StudentUniversityContract) queryByStudentEmail(stub shim.ChaincodeStubInterface, args []string) peer.Response {
+	return t.queryByField(stub, args, "Email", "email")
+}
+
+func (t *StudentUniversityContract) queryByStudentName(stub shim.ChaincodeStubInterface, args []string) peer.Response {
+	return t.queryByField(stub, args, "StudentName", "student name")
+}
+
+func (t *StudentUniversityContract) queryByUniversityName(stub shim.ChaincodeStubInterface, args []string) peer.Response {
+	return t.queryByField(stub, args, "UniversityName", "university name")
+}
+
+func (t *StudentUniversityContract) queryByField(stub shim.ChaincodeStubInterface, args []string, field, description string) peer.Response {
 	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
-		return shim.Error("Incorrect number of arguments. Expecting one email")
+		return shim.Error("Incorrect number of arguments. Expecting one " + description)
 	}
 	selector := map[string]interface{}{
-		"selector": map[string]string{"Email": strings.ToLower(strings.TrimSpace(args[0]))},
+		"selector": map[string]string{field: strings.ToLower(strings.TrimSpace(args[0]))},
 	}
 	queryBytes, err := json.Marshal(selector)
 	if err != nil {

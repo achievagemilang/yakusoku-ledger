@@ -21,11 +21,18 @@ Content-Type: application/json
   "studentName": "Aiko Tanaka",
   "email": "aiko@example.edu",
   "date": "2026-07-18",
-  "amount": "680000",
+  "amount": "6800.25",
+  "currency": "USD",
   "universityName": "Kyoto International University",
   "documentHash": "<64-character SHA-256>"
 }
 ```
+
+The API generates a unique reference such as `AGR-2026-12AB34CD56EF`. Money is
+converted to exact integer minor units before it reaches Fabric: `6800.25 USD` becomes
+`AmountMinor: 680025` with `Currency: "USD"`.
+
+Supported currencies are AUD, CAD, EUR, GBP, INR, JPY, KRW, and USD.
 
 ### Verify a document
 

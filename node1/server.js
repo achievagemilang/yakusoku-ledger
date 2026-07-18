@@ -21,6 +21,8 @@ var instantiate = require('./app/instantiate-chaincode.js');
 var invoke = require('./app/invoke-transaction.js');
 var join = require('./app/join-channel.js');
 var query = require('./app/query.js');
+var agreementReferences = require('./app/agreement-reference.js');
+var moneyValues = require('./app/money.js');
 
 var app = express();
 var logger = log4js.getLogger('YakusokuLedger');
@@ -215,6 +217,7 @@ app.post('/api/agreements', function(req, res, next) {
 		req.body.email,
 		req.body.date,
 		req.body.amount,
+		req.body.currency,
 		req.body.universityName
 	];
 	for (var i = 0; i < fields.length; i++) {
@@ -222,8 +225,23 @@ app.post('/api/agreements', function(req, res, next) {
 			return;
 		}
 	}
-	var args = fields.map(String);
-	args.push(String(req.body.documentHash || ''));
+	var parsedMoney;
+	try {
+		parsedMoney = moneyValues.parseMoney(req.body.amount, req.body.currency);
+	} catch (err) {
+		return res.status(400).json({success: false, message: err.message});
+	}
+	var agreementReference = agreementReferences.createAgreementReference();
+	var args = [
+		agreementReference,
+		String(req.body.studentName),
+		String(req.body.email),
+		String(req.body.date),
+		parsedMoney.amountMinor,
+		parsedMoney.currency,
+		String(req.body.universityName),
+		String(req.body.documentHash || '')
+	];
 	sendFabricResult(res, next, req.orgname, function() {
 		return invoke.invokeChaincode(
 			['peer1', 'peer2'],
@@ -234,7 +252,11 @@ app.post('/api/agreements', function(req, res, next) {
 			req.username,
 			req.orgname
 		).then(function(transactionId) {
-			return {success: true, transactionId: transactionId};
+			return {
+				success: true,
+				agreementId: agreementReference,
+				transactionId: transactionId
+			};
 		});
 	});
 });

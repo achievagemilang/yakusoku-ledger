@@ -8,6 +8,9 @@
 4. Only the fingerprint and agreement metadata are submitted to Fabric.
 5. Track the submitted agreement and its university decision in the dashboard.
 
+Each submission receives a stable `AGR-<year>-<random>` reference, so the same student
+and university can create separate agreements for different terms or programs.
+
 The source document is never uploaded to Yakusoku Ledger. A later copy can be selected
 in the verification panel; its local fingerprint is compared with the immutable value.
 
@@ -26,6 +29,10 @@ The dashboard calculates these values from live ledger records:
 - pending approvals
 - approved agreement value
 - agreements carrying verified document fingerprints
+
+Agreement values are stored as integer minor units with an explicit currency. The
+dashboard formats each record in its own currency and does not combine unlike
+currencies into a misleading total.
 
 Before authentication, clearly marked preview records demonstrate the product without
 pretending that sample data came from Fabric.

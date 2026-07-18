@@ -1,10 +1,10 @@
 'use strict';
 
 const previewAgreements = [
-  { id: 'AGR-2026-0248', student: 'Aiko Tanaka', email: 'aiko.tanaka@example.edu', university: 'Kyoto International University', amount: 680000, status: 'Approved', date: '2026-07-16', preview: true, verified: true },
-  { id: 'AGR-2026-0247', student: 'Haruto Sato', email: 'haruto.sato@example.edu', university: 'University of Tokyo', amount: 920000, status: 'Submitted', date: '2026-07-15', preview: true, verified: true },
-  { id: 'AGR-2026-0246', student: 'Mei Nakamura', email: 'mei.n@example.edu', university: 'Waseda University', amount: 540000, status: 'Submitted', date: '2026-07-14', preview: true, verified: false },
-  { id: 'AGR-2026-0245', student: 'Ren Kobayashi', email: 'ren.k@example.edu', university: 'Osaka Metropolitan University', amount: 760000, status: 'Rejected', date: '2026-07-12', preview: true, verified: true }
+  { id: 'AGR-2026-0248ABCD0001', student: 'Aiko Tanaka', email: 'aiko.tanaka@example.edu', university: 'Kyoto International University', amountMinor: 680000, currency: 'JPY', status: 'Approved', date: '2026-07-16', preview: true, verified: true },
+  { id: 'AGR-2026-0247BCDE0002', student: 'Haruto Sato', email: 'haruto.sato@example.edu', university: 'University of Tokyo', amountMinor: 920000, currency: 'JPY', status: 'Submitted', date: '2026-07-15', preview: true, verified: true },
+  { id: 'AGR-2026-0246CDEF0003', student: 'Mei Nakamura', email: 'mei.n@example.edu', university: 'Waseda University', amountMinor: 540000, currency: 'JPY', status: 'Submitted', date: '2026-07-14', preview: true, verified: false },
+  { id: 'AGR-2026-0245DEFA0004', student: 'Ren Kobayashi', email: 'ren.k@example.edu', university: 'Osaka Metropolitan University', amountMinor: 760000, currency: 'JPY', status: 'Rejected', date: '2026-07-12', preview: true, verified: true }
 ];
 
 const state = {
@@ -190,6 +190,7 @@ function bindAgreements() {
           email: values.email.trim(),
           date: values.date,
           amount: String(values.amount),
+          currency: values.currency,
           universityName: values.university.trim(),
           documentHash: state.documentHash
         }
@@ -219,7 +220,7 @@ function renderAgreements() {
       <td data-label="Agreement"><span class="agreement-id"><i class="agreement-glyph">約</i>${escapeHtml(item.id)}${item.preview ? '<em class="preview-tag">PREVIEW</em>' : ''}</span></td>
       <td data-label="Student"><span class="student-cell"><strong>${escapeHtml(item.student)}</strong><small>${escapeHtml(item.email)}</small></span></td>
       <td data-label="University"><span class="university">${escapeHtml(item.university)}</span></td>
-      <td data-label="Value"><span class="amount">${formatYen(item.amount)}</span></td>
+      <td data-label="Value"><span class="amount">${formatMoney(item.amountMinor, item.currency)}</span></td>
       <td data-label="Status"><span class="status ${item.status.toLowerCase()}">${escapeHtml(item.status)}</span></td>
       <td data-label="Date">${formatDate(item.date)}</td>
       <td><button class="row-menu" type="button" aria-label="Details for ${escapeHtml(item.id)}" data-agreement="${escapeHtml(item.id)}">•••</button></td>
@@ -242,7 +243,7 @@ function renderStats() {
   }
   $('[data-stat="total"]').textContent = String(state.agreements.length);
   $('[data-stat="pending"]').textContent = String(state.agreements.filter(item => item.status === 'Submitted').length);
-  $('[data-stat="value"]').textContent = compactYen(state.agreements.filter(item => item.status === 'Approved').reduce((sum, item) => sum + item.amount, 0));
+  $('[data-stat="value"]').textContent = compactApprovedValue(state.agreements);
   $('[data-stat="verified"]').textContent = String(state.agreements.filter(item => item.verified).length);
 }
 
@@ -364,7 +365,10 @@ function normalizeAgreement(record) {
     student: value.StudentName,
     email: value.Email,
     university: value.UniversityName,
-    amount: Number(value.Amount),
+    amountMinor: value.AmountMinor !== undefined
+      ? Number(value.AmountMinor)
+      : legacyAmountMinor(value.Amount, value.Currency || 'JPY'),
+    currency: String(value.Currency || 'JPY'),
     status: status.charAt(0).toUpperCase() + status.slice(1),
     date: value.Date,
     preview: false,
@@ -401,7 +405,10 @@ async function showAgreementHistory(id) {
     list.innerHTML = history.length ? history.slice().reverse().map(entry => {
       const value = entry.Value || {};
       const status = entry.IsDelete ? 'Deleted' : String(value.Status || 'Submitted');
-      return `<li><strong>${escapeHtml(status)}</strong><span>${entry.IsDelete ? 'Agreement removed' : `Value ${formatYen(Number(value.Amount || 0))}`}</span><small>${escapeHtml(entry.Timestamp)} · ${escapeHtml(entry.TxId)}</small></li>`;
+      const amountMinor = value.AmountMinor !== undefined
+        ? Number(value.AmountMinor)
+        : legacyAmountMinor(value.Amount, value.Currency || 'JPY');
+      return `<li><strong>${escapeHtml(status)}</strong><span>${entry.IsDelete ? 'Agreement removed' : `Value ${formatMoney(amountMinor, value.Currency || 'JPY')}`}</span><small>${escapeHtml(entry.Timestamp)} · ${escapeHtml(entry.TxId)}</small></li>`;
     }).join('') : '<li><span>No history entries were returned.</span></li>';
   } catch (error) {
     list.innerHTML = `<li><span>${escapeHtml(error.message)}</span></li>`;
@@ -482,12 +489,44 @@ function transactionMessage(result) {
   return result?.message || 'Transaction committed successfully.';
 }
 
-function formatYen(amount) {
-  return new Intl.NumberFormat('ja-JP', { style: 'currency', currency: 'JPY', maximumFractionDigits: 0 }).format(amount);
+function currencyScale(currency) {
+  return ['JPY', 'KRW'].includes(currency) ? 0 : 2;
 }
 
-function compactYen(amount) {
-  return `¥${new Intl.NumberFormat('en', { notation: 'compact', maximumFractionDigits: 2 }).format(amount)}`;
+function legacyAmountMinor(amount, currency) {
+  const numeric = Number(amount || 0);
+  return Math.round(numeric * (10 ** currencyScale(currency)));
+}
+
+function formatMoney(amountMinor, currency) {
+  const scale = currencyScale(currency);
+  const major = Number(amountMinor || 0) / (10 ** scale);
+  return new Intl.NumberFormat('en', {
+    style: 'currency',
+    currency,
+    minimumFractionDigits: scale,
+    maximumFractionDigits: scale
+  }).format(major);
+}
+
+function compactApprovedValue(agreements) {
+  const totals = agreements
+    .filter(item => item.status === 'Approved')
+    .reduce((result, item) => {
+      result[item.currency] = (result[item.currency] || 0) + item.amountMinor;
+      return result;
+    }, {});
+  const currencies = Object.keys(totals);
+  if (!currencies.length) return '—';
+  if (currencies.length > 1) return `${currencies.length} currencies`;
+  const currency = currencies[0];
+  const major = totals[currency] / (10 ** currencyScale(currency));
+  return new Intl.NumberFormat('en', {
+    style: 'currency',
+    currency,
+    notation: 'compact',
+    maximumFractionDigits: 2
+  }).format(major);
 }
 
 function formatDate(value) {
