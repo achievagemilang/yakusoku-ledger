@@ -7,5 +7,5 @@ if [ ! -d channel-artifacts/certs ] || ! find channel-artifacts/certs -name '*_s
 	bash ./generate-artifacts.sh
 fi
 
-export COMPOSE_PROJECT_NAME=academicledger
+export COMPOSE_PROJECT_NAME=yakusoku
 docker compose -f docker/docker-compose-sdk.yaml up -d

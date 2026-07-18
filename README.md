@@ -1,12 +1,12 @@
-# Academic Agreement Ledger
+# Yakusoku Ledger
 
-Academic Agreement Ledger is a Hyperledger Fabric prototype for recording financial
+Yakusoku Ledger is a Hyperledger Fabric prototype for recording financial
 agreements between students and universities. It provides an immutable agreement
 history, email-based lookup, a two-organization Fabric network, and a REST API for
 network and chaincode operations.
 
 Originally built at CUHackit 2020, the project has been completed and renamed to
-describe its purpose rather than the event where it began.
+**Yakusoku**, the Japanese word for "promise," to reflect the agreements it records.
 
 ## Architecture
 

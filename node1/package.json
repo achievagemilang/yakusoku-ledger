@@ -1,5 +1,5 @@
 {
-  "name": "academic-agreement-ledger",
+  "name": "yakusoku-ledger",
   "version": "1.0.0",
   "description": "Hyperledger Fabric ledger for student-university financial agreements",
   "main": "server.js",

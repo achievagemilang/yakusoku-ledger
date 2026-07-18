@@ -58,4 +58,4 @@ encoded_args=$(jq -rn --arg value '["ada@example.com"]' '$value|@uri')
 request "$org1_token" GET \
 	"/channels/channel1/chaincodes/studentuniversity?peer=peer1&fcn=queryByStudentEmail&args=$encoded_args"
 
-echo "Academic Agreement Ledger API workflow completed successfully."
+echo "Yakusoku Ledger API workflow completed successfully."

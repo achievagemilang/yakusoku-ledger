@@ -22,7 +22,7 @@ var join = require('./app/join-channel.js');
 var query = require('./app/query.js');
 
 var app = express();
-var logger = log4js.getLogger('AcademicAgreementLedger');
+var logger = log4js.getLogger('YakusokuLedger');
 var host = process.env.HOST || hfc.getConfigSetting('host');
 var port = process.env.PORT || hfc.getConfigSetting('port');
 var jwtSecret = process.env.JWT_SECRET || crypto.randomBytes(32).toString('hex');
@@ -384,7 +384,7 @@ app.use(function(err, req, res, next) {
 });
 
 var server = http.createServer(app).listen(port, host, function() {
-	logger.info('Academic Agreement Ledger API listening at http://' + host + ':' + port);
+	logger.info('Yakusoku Ledger API listening at http://' + host + ':' + port);
 });
 server.timeout = 240000;
 
