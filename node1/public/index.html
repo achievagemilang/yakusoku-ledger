@@ -179,6 +179,25 @@
             <li><span class="timeline-icon amber">待</span><div><strong>Approval requested</strong><p>Agreement AGR-2026-0239ABCD0006 is waiting for university review.</p><time datetime="2026-07-17">Yesterday</time></div></li>
           </ol>
         </section>
+
+        <section class="panel section-anchor member-panel" id="memberManagement" aria-labelledby="member-title" hidden>
+          <div class="panel-head">
+            <div><p class="eyebrow">IDENTITY GOVERNANCE</p><h2 id="member-title">Members &amp; invitations</h2></div>
+            <button class="ghost-button" id="refreshMembers" type="button">Refresh</button>
+          </div>
+          <div class="member-grid">
+            <form id="invitationForm">
+              <label><span>Certificate role</span><select name="role" required><option value="student">Student</option><option value="university_reviewer">University reviewer</option><option value="organization_admin">Organization administrator</option></select></label>
+              <label><span>Expires in minutes</span><input name="expiresInMinutes" type="number" min="5" max="10080" value="60" required></label>
+              <button class="primary-button full-button" type="submit">Create single-use invitation</button>
+              <output class="hash-output" id="invitationToken">Invitation token appears once after creation.</output>
+              <p class="form-status" id="invitationStatus" role="status"></p>
+            </form>
+            <div><h3>Invitations</h3><div id="invitationList" class="management-list"></div></div>
+            <div><h3>Members</h3><div id="memberList" class="management-list"></div></div>
+            <div><h3>Audit events</h3><div id="identityEventList" class="management-list"></div></div>
+          </div>
+        </section>
       </main>
       <footer><span>YAKUSOKU LEDGER</span><p>Built on Hyperledger Fabric · Cryptographic integrity by design</p><span>NETWORK 01</span></footer>
     </div>
@@ -198,8 +217,7 @@
         <label class="org-option"><input type="radio" name="orgName" value="org1" checked><span><b>Org 1</b><small>University organization</small></span></label>
         <label class="org-option"><input type="radio" name="orgName" value="org2"><span><b>Org 2</b><small>Student organization</small></span></label>
       </fieldset>
-      <label><span>Network admin secret <small>Optional</small></span><input name="adminSecret" type="password" autocomplete="current-password" placeholder="Only required for network management"></label>
-      <label><span>University enrollment secret <small>Org 1 only</small></span><input name="organizationSecret" type="password" autocomplete="off" placeholder="Required to join the university organization"></label>
+      <label><span>Single-use invitation <small>First enrollment only</small></span><input name="invitationCode" type="password" autocomplete="one-time-code" placeholder="Issued by your organization administrator"></label>
       <button class="primary-button full-button" type="submit">Enroll &amp; connect</button>
       <p class="form-status" id="authStatus" role="status"></p>
     </form>

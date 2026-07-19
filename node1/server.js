@@ -21,6 +21,7 @@ var instantiate = require('./app/instantiate-chaincode.js');
 var invoke = require('./app/invoke-transaction.js');
 var join = require('./app/join-channel.js');
 var query = require('./app/query.js');
+var governance = require('./app/identity-governance.js');
 var agreementReferences = require('./app/agreement-reference.js');
 var agreementPrivacy = require('./app/agreement-privacy.js');
 var moneyValues = require('./app/money.js');
@@ -108,16 +109,6 @@ function requireAdmin(req, res, next) {
 	return next();
 }
 
-function secretsMatch(provided, expected) {
-	if (!provided || !expected) {
-		return false;
-	}
-	var providedBuffer = Buffer.from(String(provided));
-	var expectedBuffer = Buffer.from(String(expected));
-	return providedBuffer.length === expectedBuffer.length &&
-		crypto.timingSafeEqual(providedBuffer, expectedBuffer);
-}
-
 app.get('/health', function(req, res) {
 	res.json({status: 'ok'});
 });
@@ -143,6 +134,14 @@ app.use(function(req, res, next) {
 		req.username = decoded.username;
 		req.orgname = decoded.orgName;
 		req.role = decoded.role;
+		req.memberRole = decoded.memberRole;
+		var member = governance.getMember(req.orgname, req.username);
+		if (!member || member.status !== 'active') {
+			return res.status(401).json({
+				success: false,
+				message: 'This identity is not an active organization member'
+			});
+		}
 		logger.debug(util.format(
 			'Decoded JWT token for username %s in organization %s',
 			decoded.username,
@@ -165,31 +164,155 @@ app.post('/users', function(req, res, next) {
 			message: 'orgName must be org1 or org2'
 		});
 	}
-	if (orgName === 'org1' &&
-		!secretsMatch(req.body.organizationSecret, process.env.UNIVERSITY_ENROLLMENT_SECRET)) {
-		return res.status(403).json({
-			success: false,
-			message: 'A valid university enrollment secret is required for org1'
-		});
-	}
-
-	var adminSecret = process.env.ADMIN_ENROLLMENT_SECRET;
-	var role = secretsMatch(req.body.adminSecret, adminSecret) ? 'admin' : 'user';
 	sendFabricResult(res, next, orgName, function() {
-		return helper.getRegisteredUsers(username, orgName, true).then(function(response) {
+		var claimedInvitation;
+		return helper.isUserEnrolled(username, orgName).then(function(enrolled) {
+			if (enrolled) {
+				var existingMember = governance.getMember(orgName, username);
+				if (!existingMember || existingMember.status !== 'active') {
+					throw new Error('Existing identity is not an active invited member');
+				}
+				return helper.getRegisteredUsers(username, orgName, true).then(function(response) {
+					return {response: response, member: existingMember};
+				});
+			}
+			if (!req.body.invitationCode) {
+				var invitationError = new Error(
+					'invitationCode is required for first-time enrollment'
+				);
+				invitationError.status = 400;
+				throw invitationError;
+			}
+			claimedInvitation = governance.claimInvitation(
+				req.body.invitationCode,
+				orgName,
+				username
+			);
+			return helper.getRegisteredUsers(username, orgName, true, {
+				role: claimedInvitation.role,
+				invitationId: claimedInvitation.id
+			}).then(function(response) {
+				if (!response || typeof response === 'string') {
+					throw new Error(response || 'User enrollment failed');
+				}
+				var enrolledMember = governance.completeEnrollment(
+					claimedInvitation.id,
+					username
+				);
+				return {response: response, member: enrolledMember};
+			}).catch(function(err) {
+				governance.releaseClaim(claimedInvitation.id, username, err.message);
+				throw err;
+			});
+		}).then(function(result) {
+			if (!result) {
+				return null;
+			}
+			var response = result.response;
+			var member = result.member;
 			if (!response || typeof response === 'string') {
 				throw new Error(response || 'User enrollment failed');
 			}
+			var role = member.role === 'organization_admin' ? 'admin' : 'user';
 			response.token = jwt.sign({
 				exp: Math.floor(Date.now() / 1000) +
 					parseInt(hfc.getConfigSetting('jwt_expiretime'), 10),
 				username: username,
 				orgName: orgName,
-				role: role
+				role: role,
+				memberRole: member.role
 			}, app.get('secret'));
+			response.memberRole = member.role;
 			return response;
 		});
 	});
+});
+
+app.get('/api/members', requireAdmin, function(req, res) {
+	res.json(governance.listMembers(req.orgname));
+});
+
+app.get('/api/members/invitations', requireAdmin, function(req, res) {
+	res.json(governance.listInvitations(req.orgname));
+});
+
+app.post('/api/members/invitations', requireAdmin, function(req, res, next) {
+	if (!requireField(res, req.body.role, 'role') ||
+		!requireField(res, req.body.expiresInMinutes, 'expiresInMinutes')) {
+		return;
+	}
+	try {
+		res.status(201).json(governance.createInvitation(
+			req.orgname,
+			String(req.body.role),
+			Number(req.body.expiresInMinutes),
+			req.username
+		));
+	} catch (err) {
+		next(err);
+	}
+});
+
+app.post('/api/members/invitations/:invitationId/revoke', requireAdmin, function(req, res, next) {
+	try {
+		res.json(governance.revokeInvitation(
+			req.orgname,
+			req.params.invitationId,
+			req.username,
+			req.body.reason
+		));
+	} catch (err) {
+		next(err);
+	}
+});
+
+app.post('/api/members/invitations/:invitationId/reissue', requireAdmin, function(req, res, next) {
+	if (!requireField(res, req.body.expiresInMinutes, 'expiresInMinutes')) {
+		return;
+	}
+	try {
+		res.status(201).json(governance.reissueInvitation(
+			req.orgname,
+			req.params.invitationId,
+			Number(req.body.expiresInMinutes),
+			req.username
+		));
+	} catch (err) {
+		next(err);
+	}
+});
+
+app.post('/api/members/:username/revoke', requireAdmin, function(req, res, next) {
+	if (req.params.username === req.username) {
+		return res.status(400).json({
+			success: false,
+			message: 'Administrators cannot revoke their current identity'
+		});
+	}
+	sendFabricResult(res, next, req.orgname, function() {
+		return helper.revokeUser(
+			req.params.username,
+			req.orgname,
+			req.body.reason
+		).then(function() {
+			var member = governance.revokeMember(
+				req.orgname,
+				req.params.username,
+				req.username,
+				req.body.reason
+			);
+			return helper.removeUserCredentials(
+				req.params.username,
+				req.orgname
+			).then(function() {
+				return member;
+			});
+		});
+	});
+});
+
+app.get('/api/members/events', requireAdmin, function(req, res) {
+	res.json(governance.listEvents(req.orgname));
 });
 
 app.get('/api/agreements', function(req, res, next) {
@@ -719,7 +842,7 @@ app.use(function(err, req, res, next) {
 	if (res.headersSent) {
 		return next(err);
 	}
-	res.status(500).json({
+	res.status(err.status || 500).json({
 		success: false,
 		message: err.message || 'Internal server error'
 	});
