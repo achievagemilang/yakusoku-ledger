@@ -217,6 +217,7 @@ app.post('/api/agreements', function(req, res, next) {
 		req.body.studentName,
 		req.body.email,
 		req.body.date,
+		req.body.expiresOn,
 		req.body.amount,
 		req.body.currency,
 		req.body.universityName
@@ -245,6 +246,7 @@ app.post('/api/agreements', function(req, res, next) {
 	var args = [
 		agreementReference,
 		String(req.body.date),
+		String(req.body.expiresOn),
 		parsedMoney.amountMinor,
 		parsedMoney.currency,
 		String(req.body.universityName),
@@ -266,6 +268,98 @@ app.post('/api/agreements', function(req, res, next) {
 				agreementId: agreementReference,
 				transactionId: transactionId
 			};
+		});
+	});
+});
+
+app.post('/api/agreements/:agreementId/sign', function(req, res, next) {
+	sendFabricResult(res, next, req.orgname, function() {
+		return invoke.invokeChaincode(
+			['peer1', 'peer2'],
+			hfc.getConfigSetting('channelName'),
+			'studentuniversity',
+			'signAgreement',
+			[req.params.agreementId],
+			req.username,
+			req.orgname
+		).then(function(transactionId) {
+			return {success: true, transactionId: transactionId};
+		});
+	});
+});
+
+app.post('/api/agreements/:agreementId/amendments', function(req, res, next) {
+	var fields = [
+		req.body.date,
+		req.body.expiresOn,
+		req.body.amount,
+		req.body.currency,
+		req.body.documentHash
+	];
+	for (var i = 0; i < fields.length; i++) {
+		if (!requireField(res, fields[i], 'amendment field')) {
+			return;
+		}
+	}
+	var parsedMoney;
+	try {
+		parsedMoney = moneyValues.parseMoney(req.body.amount, req.body.currency);
+	} catch (err) {
+		return res.status(400).json({success: false, message: err.message});
+	}
+	sendFabricResult(res, next, req.orgname, function() {
+		return invoke.invokeChaincode(
+			['peer1', 'peer2'],
+			hfc.getConfigSetting('channelName'),
+			'studentuniversity',
+			'proposeAmendment',
+			[
+				req.params.agreementId,
+				String(req.body.date),
+				String(req.body.expiresOn),
+				parsedMoney.amountMinor,
+				parsedMoney.currency,
+				String(req.body.documentHash)
+			],
+			req.username,
+			req.orgname
+		).then(function(transactionId) {
+			return {success: true, transactionId: transactionId};
+		});
+	});
+});
+
+app.post('/api/agreements/:agreementId/amendments/decision', function(req, res, next) {
+	if (!requireField(res, req.body.decision, 'decision')) {
+		return;
+	}
+	sendFabricResult(res, next, req.orgname, function() {
+		return invoke.invokeChaincode(
+			['peer1', 'peer2'],
+			hfc.getConfigSetting('channelName'),
+			'studentuniversity',
+			'decideAmendment',
+			[req.params.agreementId, String(req.body.decision)],
+			req.username,
+			req.orgname
+		).then(function(transactionId) {
+			return {success: true, transactionId: transactionId};
+		});
+	});
+});
+
+app.post('/api/agreements/:agreementId/expire', function(req, res, next) {
+	sendFabricResult(res, next, req.orgname, function() {
+		return invoke.invokeChaincode(
+			['peer1', 'peer2'],
+			hfc.getConfigSetting('channelName'),
+			'studentuniversity',
+			'expireAgreement',
+			[req.params.agreementId],
+			req.username,
+			req.orgname
+		).then(function(transactionId) {
+			return {success: true, transactionId: transactionId};
 		});
 	});
 });

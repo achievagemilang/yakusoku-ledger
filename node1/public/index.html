@@ -129,6 +129,7 @@
                 <label><span>Agreement value</span><input name="amount" type="text" inputmode="decimal" pattern="[0-9]+([.][0-9]+)?" required placeholder="500000"></label>
                 <label><span>Currency</span><select name="currency" required><option value="JPY">JPY</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="GBP">GBP</option><option value="INR">INR</option><option value="CAD">CAD</option><option value="AUD">AUD</option><option value="KRW">KRW</option></select></label>
                 <label><span>Effective date</span><input name="date" type="date" required></label>
+                <label><span>Expiration date</span><input name="expiresOn" type="date" required></label>
                 <label class="full file-field">
                   <span>Supporting document</span>
                   <input name="document" id="agreementDocument" type="file" required>
@@ -210,6 +211,19 @@
     <p class="eyebrow">IMMUTABLE AUDIT TRAIL</p>
     <h2 id="history-title">Agreement history</h2>
     <p id="historySubtitle">Every committed version of this agreement.</p>
+    <div class="lifecycle-summary" id="lifecycleSummary"></div>
+    <form id="amendmentForm" class="amendment-form" hidden>
+      <p class="eyebrow">PROPOSE AMENDMENT</p>
+      <div class="form-grid">
+        <label><span>Effective date</span><input name="date" type="date" required></label>
+        <label><span>Expiration date</span><input name="expiresOn" type="date" required></label>
+        <label><span>Agreement value</span><input name="amount" type="text" inputmode="decimal" required></label>
+        <label><span>Currency</span><select name="currency" required><option>JPY</option><option>USD</option><option>EUR</option><option>GBP</option><option>INR</option><option>CAD</option><option>AUD</option><option>KRW</option></select></label>
+        <label class="full"><span>Document SHA-256</span><input name="documentHash" pattern="[a-fA-F0-9]{64}" required></label>
+      </div>
+      <button class="secondary-button full-button" type="submit">Propose for both-party approval</button>
+      <p class="form-status" id="amendmentStatus" role="status"></p>
+    </form>
     <ol class="history-list" id="historyList"></ol>
   </dialog>
 

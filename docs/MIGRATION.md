@@ -1,7 +1,7 @@
-# Chaincode v4 data and privacy migration
+# Chaincode v5 lifecycle and privacy migration
 
-Chaincode v4 retains the v3 agreement identity and money representation while moving
-new student names and emails into a Fabric private data collection.
+Chaincode v5 retains the v4 privacy model and adds explicit signatures, expiration,
+revisions, and two-party amendments.
 
 ## New records
 
@@ -29,7 +29,7 @@ See [Privacy architecture](PRIVACY.md) before migrating real personal data.
 1. Back up the ledger and CouchDB state.
 2. Update the existing channel's Application capability to `V1_2`. Fresh artifacts
    generated from `fabric/config/configtx.yaml` already enable it.
-3. Install chaincode version `v4` on every peer in both organizations using the
+3. Install chaincode version `v5` on every peer in both organizations using the
    Fabric 1.x `peer chaincode install` command.
 4. From a configured administrator CLI, upgrade the existing channel instance using
    the Fabric 1.x lifecycle:
@@ -39,7 +39,7 @@ See [Privacy architecture](PRIVACY.md) before migrating real personal data.
      -o orderer.clemson.com:7050 \
      -C channel1 \
      -n studentuniversity \
-     -v v4 \
+     -v v5 \
      -c '{"Args":["Init"]}' \
      -P "OR('UniversityMSP.peer','StudentMSP.peer')" \
      --collections-config /opt/gopath/src/chaincode/collections-config.json \
@@ -58,15 +58,16 @@ See [Privacy architecture](PRIVACY.md) before migrating real personal data.
 7. Confirm the latest public history value omits `StudentName` and `Email`, contains a
    64-character `StudentCommitment`, and the normal detail/list APIs still resolve PII
    for both collection-member organizations.
-8. Submit two v4 agreements for the same student/university pair.
+8. Submit two v5 agreements for the same student/university pair.
 9. Confirm their references differ and their `AmountMinor`/`Currency` values are exact.
 10. Keep the old chaincode package available for rollback. A rollback does not restore
     private fields to public state.
 
-Integrations invoking `createAgreement` directly must switch to six public arguments:
+Integrations invoking `createAgreement` directly must switch to seven public arguments:
 
 ```text
-reference, date, amount minor units, currency, university name, document SHA-256
+reference, effective date, expiration date, amount minor units, currency,
+university name, document SHA-256
 ```
 
 They must also provide an `agreement_pii` transient-map value containing

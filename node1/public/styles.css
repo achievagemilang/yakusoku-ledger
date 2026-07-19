@@ -150,8 +150,11 @@ tbody tr:hover { background: rgb(255 255 255 / .018); }
 .status { display: inline-flex; align-items: center; gap: 6px; padding: 4px 8px; border: 1px solid; border-radius: 12px; font-size: .55rem; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; }
 .status::before { width: 5px; height: 5px; content: ""; border-radius: 50%; background: currentColor; }
 .status.approved { color: var(--green); border-color: rgb(87 179 138 / .3); background: rgb(87 179 138 / .07); }
+.status.active { color: var(--green); border-color: rgb(87 179 138 / .3); background: rgb(87 179 138 / .07); }
 .status.submitted { color: var(--amber); border-color: rgb(213 164 84 / .3); background: rgb(213 164 84 / .07); }
+.status.draft, .status.pending-university, .status.amendment-proposed { color: var(--amber); border-color: rgb(213 164 84 / .3); background: rgb(213 164 84 / .07); }
 .status.rejected { color: #d36d70; border-color: rgb(211 109 112 / .3); background: rgb(211 109 112 / .07); }
+.status.expired { color: var(--muted); border-color: rgb(144 151 158 / .3); background: rgb(144 151 158 / .07); }
 .row-menu { border: 0; color: var(--muted); background: none; cursor: pointer; font-size: 1rem; }
 .preview-tag { margin-left: 6px; padding: 2px 4px; border: 1px solid #454036; border-radius: 3px; color: var(--gold); font-size: .44rem; letter-spacing: .08em; }
 .panel-foot { padding: 13px 24px; display: flex; justify-content: space-between; color: #687077; font-size: .61rem; }
@@ -236,6 +239,10 @@ dialog fieldset { margin: 0 0 14px; padding: 0; display: grid; grid-template-col
 .history-list strong { color: var(--paper); font-size: .72rem; }
 .history-list span { color: var(--muted); font-size: .64rem; }
 .history-list small { margin-top: 3px; color: #5c646a; font: .55rem/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.lifecycle-summary { margin: 14px 0; padding: 12px; border: 1px solid var(--line-soft); border-radius: 8px; background: #0d1012; color: var(--muted); font-size: .63rem; }
+.lifecycle-summary strong { color: var(--paper); }
+.amendment-form { margin: 16px 0; padding: 14px; border: 1px solid var(--line-soft); border-radius: 8px; }
+.amendment-form .form-grid { margin-bottom: 12px; }
 .toast-region { position: fixed; right: 20px; bottom: 20px; z-index: 80; display: grid; gap: 8px; }
 .toast { max-width: 350px; padding: 12px 15px; border: 1px solid #384046; border-radius: 8px; background: #1b2024; box-shadow: var(--shadow); font-size: .68rem; animation: toast-in .22s ease; }
 .toast.error { border-color: rgb(226 74 50 / .5); }

@@ -21,6 +21,7 @@ Content-Type: application/json
   "studentName": "Aiko Tanaka",
   "email": "aiko@example.edu",
   "date": "2026-07-18",
+  "expiresOn": "2027-07-18",
   "amount": "6800.25",
   "currency": "USD",
   "universityName": "Kyoto International University",
@@ -68,6 +69,51 @@ the supplied details match the current legacy record before moving them into the
 private collection and redacting the current public state. Historical blocks remain
 unchanged.
 
+### Sign or countersign
+
+```http
+POST /api/agreements/:agreementId/sign
+```
+
+A Student organization member signs a draft, moving it to `pending_university`. A
+University organization member countersigns that state, moving it to `active`.
+
+### Propose an amendment
+
+```http
+POST /api/agreements/:agreementId/amendments
+Content-Type: application/json
+
+{
+  "date": "2026-09-01",
+  "expiresOn": "2027-09-01",
+  "amount": "7200.00",
+  "currency": "USD",
+  "documentHash": "<64-character SHA-256>"
+}
+```
+
+The active terms do not change until the other organization approves.
+
+### Decide an amendment
+
+```http
+POST /api/agreements/:agreementId/amendments/decision
+Content-Type: application/json
+
+{ "decision": "approved" }
+```
+
+The decision may be `approved` or `rejected`.
+
+### Record expiration
+
+```http
+POST /api/agreements/:agreementId/expire
+```
+
+Chaincode accepts this transition only on or after the agreement's `ExpiresOn` date.
+
 ### Verify a document
 
 ```http
@@ -88,8 +134,8 @@ Content-Type: application/json
 { "decision": "approved" }
 ```
 
-The decision must be `approved` or `rejected`, and the Fabric creator must belong to
-`UniversityMSP`.
+The compatibility review endpoint accepts `approved` or `rejected`. Approval performs
+the University countersignature and requires a student-signed agreement.
 
 ### Read history
 
