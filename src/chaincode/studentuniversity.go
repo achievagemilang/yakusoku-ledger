@@ -18,11 +18,16 @@ import (
 )
 
 const (
-	statusSubmitted = "submitted"
-	statusApproved  = "approved"
-	statusRejected  = "rejected"
-	maxSafeMinor    = int64(9007199254740991)
-	privacyVersion  = 1
+	statusDraft             = "draft"
+	statusPendingUniversity = "pending_university"
+	statusActive            = "active"
+	statusAmendmentProposed = "amendment_proposed"
+	statusRejected          = "rejected"
+	statusExpired           = "expired"
+	statusSubmitted         = "submitted"
+	statusApproved          = "approved"
+	maxSafeMinor            = int64(9007199254740991)
+	privacyVersion          = 1
 
 	agreementPIICollection = "agreementPIICollection"
 	agreementPIITransient  = "agreement_pii"
@@ -49,7 +54,8 @@ type agreement struct {
 	StudentName       string      `json:"StudentName,omitempty"`
 	UniversityName    string      `json:"UniversityName"`
 	Date              string      `json:"Date"`
-	AmountMinor       int64       `json:"AmountMinor,omitempty"`
+	ExpiresOn        string      `json:"ExpiresOn,omitempty"`
+	AmountMinor      int64       `json:"AmountMinor,omitempty"`
 	Currency          string      `json:"Currency,omitempty"`
 	LegacyAmount      json.Number `json:"Amount,omitempty"`
 	Email             string      `json:"Email,omitempty"`
@@ -57,9 +63,38 @@ type agreement struct {
 	PrivacyVersion    int         `json:"PrivacyVersion,omitempty"`
 	DocumentHash      string      `json:"DocumentHash"`
 	Status            string      `json:"Status"`
+	Revision          int         `json:"Revision,omitempty"`
 	CreatedBy         string      `json:"CreatedBy"`
-	ReviewedBy        string      `json:"ReviewedBy,omitempty"`
+	StudentSignedBy   string      `json:"StudentSignedBy,omitempty"`
+	StudentSignedAt   string      `json:"StudentSignedAt,omitempty"`
+	UniversitySignedBy string     `json:"UniversitySignedBy,omitempty"`
+	UniversitySignedAt string     `json:"UniversitySignedAt,omitempty"`
+	ReviewedBy       string      `json:"ReviewedBy,omitempty"`
+	PendingAmendment *amendment  `json:"PendingAmendment,omitempty"`
+	Amendments       []amendment `json:"Amendments,omitempty"`
+	ExpiredBy        string      `json:"ExpiredBy,omitempty"`
+	ExpiredAt        string      `json:"ExpiredAt,omitempty"`
 	UpdatedAt         string      `json:"UpdatedAt"`
+}
+
+type amendment struct {
+	ID                   string `json:"Id"`
+	Date                 string `json:"Date"`
+	ExpiresOn            string `json:"ExpiresOn,omitempty"`
+	AmountMinor          int64  `json:"AmountMinor"`
+	Currency             string `json:"Currency"`
+	DocumentHash         string `json:"DocumentHash"`
+	ProposedBy            string `json:"ProposedBy"`
+	ProposedByMSP         string `json:"ProposedByMSP"`
+	ProposedAt            string `json:"ProposedAt"`
+	StudentApprovedBy     string `json:"StudentApprovedBy,omitempty"`
+	StudentApprovedAt     string `json:"StudentApprovedAt,omitempty"`
+	UniversityApprovedBy  string `json:"UniversityApprovedBy,omitempty"`
+	UniversityApprovedAt  string `json:"UniversityApprovedAt,omitempty"`
+	State                 string `json:"State,omitempty"`
+	SupersededRevision    int    `json:"SupersededRevision,omitempty"`
+	ActivatedRevision     int    `json:"ActivatedRevision,omitempty"`
+	ResolvedAt            string `json:"ResolvedAt,omitempty"`
 }
 
 type privateAgreementDetails struct {
@@ -98,6 +133,14 @@ func (t *StudentUniversityContract) Invoke(stub shim.ChaincodeStubInterface) pee
 		return t.migrateAgreementPII(stub, args)
 	case "verifyStudentIdentity":
 		return t.verifyStudentIdentity(stub, args)
+	case "signAgreement":
+		return t.signAgreement(stub, args)
+	case "proposeAmendment":
+		return t.proposeAmendment(stub, args)
+	case "decideAmendment":
+		return t.decideAmendment(stub, args)
+	case "expireAgreement":
+		return t.expireAgreement(stub, args)
 	case "queryByStudentEmail":
 		return t.queryByStudentEmail(stub, args)
 	case "queryByStudentName":
@@ -122,8 +165,8 @@ func (t *StudentUniversityContract) Invoke(stub shim.ChaincodeStubInterface) pee
 }
 
 func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInterface, args []string) peer.Response {
-	if len(args) != 6 {
-		return shim.Error("Incorrect number of arguments. Expecting 6 public agreement fields")
+	if len(args) != 7 {
+		return shim.Error("Incorrect number of arguments. Expecting 7 public agreement fields")
 	}
 	for i, arg := range args[:5] {
 		if strings.TrimSpace(arg) == "" {
@@ -140,19 +183,26 @@ func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInter
 	if _, err := time.Parse("2006-01-02", currentDate); err != nil {
 		return shim.Error("2nd argument must be an ISO date in YYYY-MM-DD format")
 	}
+	expiresOn := strings.TrimSpace(args[2])
+	if _, err := time.Parse("2006-01-02", expiresOn); err != nil {
+		return shim.Error("3rd argument must be an ISO expiration date in YYYY-MM-DD format")
+	}
+	if expiresOn < currentDate {
+		return shim.Error("Expiration date must not be before the effective date")
+	}
 
-	amountMinor, err := strconv.ParseInt(strings.TrimSpace(args[2]), 10, 64)
+	amountMinor, err := strconv.ParseInt(strings.TrimSpace(args[3]), 10, 64)
 	if err != nil || amountMinor <= 0 || amountMinor > maxSafeMinor {
-		return shim.Error("3rd argument must be a positive safe integer in minor currency units")
+		return shim.Error("4th argument must be a positive safe integer in minor currency units")
 	}
-	currency := strings.ToUpper(strings.TrimSpace(args[3]))
+	currency := strings.ToUpper(strings.TrimSpace(args[4]))
 	if !currencyPattern.MatchString(currency) || !supportedCurrencies[currency] {
-		return shim.Error("4th argument must be a supported ISO currency code")
+		return shim.Error("5th argument must be a supported ISO currency code")
 	}
-	universityName := strings.ToLower(strings.TrimSpace(args[4]))
-	documentHash := strings.ToLower(strings.TrimSpace(args[5]))
+	universityName := strings.ToLower(strings.TrimSpace(args[5]))
+	documentHash := strings.ToLower(strings.TrimSpace(args[6]))
 	if documentHash != "" && !isSHA256(documentHash) {
-		return shim.Error("6th argument must be an empty value or a SHA-256 hash")
+		return shim.Error("7th argument must be an empty value or a SHA-256 hash")
 	}
 
 	creatorMSP, err := cid.GetMSPID(stub)
@@ -183,12 +233,14 @@ func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInter
 		ContractID:        contractID,
 		UniversityName:    universityName,
 		Date:              currentDate,
+		ExpiresOn:         expiresOn,
 		AmountMinor:       amountMinor,
 		Currency:          currency,
 		StudentCommitment: studentCommitment(privateDetails.Email, privateDetails.Salt),
 		PrivacyVersion:    privacyVersion,
 		DocumentHash:      documentHash,
-		Status:            statusSubmitted,
+		Status:            statusDraft,
+		Revision:          1,
 		CreatedBy:         creatorMSP,
 		UpdatedAt:         updatedAt,
 	}
@@ -308,6 +360,219 @@ func (t *StudentUniversityContract) verifyStudentIdentity(stub shim.ChaincodeStu
 	return shim.Success(payload)
 }
 
+func (t *StudentUniversityContract) signAgreement(stub shim.ChaincodeStubInterface, args []string) peer.Response {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		return shim.Error("Incorrect number of arguments. Expecting one agreement ID")
+	}
+	record, err := loadAgreement(stub, strings.TrimSpace(args[0]))
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if record.PrivacyVersion < privacyVersion &&
+		(strings.TrimSpace(record.StudentName) != "" || strings.TrimSpace(record.Email) != "") {
+		return shim.Error("Legacy agreement PII must be migrated before signing")
+	}
+	mspID, signer, signedAt, err := signingIdentity(stub)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+
+	switch record.Status {
+	case statusDraft:
+		if mspID != "StudentMSP" {
+			return shim.Error("Only a StudentMSP member may sign a draft agreement")
+		}
+		record.StudentSignedBy = signer
+		record.StudentSignedAt = signedAt
+		record.Status = statusPendingUniversity
+	case statusPendingUniversity, statusSubmitted:
+		if mspID != "UniversityMSP" {
+			return shim.Error("Only a UniversityMSP member may countersign a student-signed agreement")
+		}
+		if record.Status == statusSubmitted && record.StudentSignedBy == "" {
+			record.StudentSignedBy = "StudentMSP:legacy-submission"
+			record.StudentSignedAt = record.UpdatedAt
+		}
+		if record.StudentSignedBy == "" {
+			return shim.Error("Student signature is required before university countersignature")
+		}
+		record.UniversitySignedBy = signer
+		record.UniversitySignedAt = signedAt
+		record.ReviewedBy = signer
+		record.Status = statusActive
+	default:
+		return shim.Error("Agreement cannot be signed while in state " + record.Status)
+	}
+	record.UpdatedAt = signedAt
+	return saveAgreement(stub, record, "AgreementSigned")
+}
+
+func (t *StudentUniversityContract) proposeAmendment(stub shim.ChaincodeStubInterface, args []string) peer.Response {
+	if len(args) != 6 {
+		return shim.Error("Incorrect number of arguments. Expecting agreement ID and five amendment fields")
+	}
+	record, err := loadAgreement(stub, strings.TrimSpace(args[0]))
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if record.Status != statusActive && record.Status != statusApproved {
+		return shim.Error("Only an active agreement may be amended")
+	}
+	mspID, proposer, proposedAt, err := signingIdentity(stub)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if mspID != "StudentMSP" && mspID != "UniversityMSP" {
+		return shim.Error("Only agreement member organizations may propose amendments")
+	}
+	effectiveDate := strings.TrimSpace(args[1])
+	expiresOn := strings.TrimSpace(args[2])
+	if _, err = time.Parse("2006-01-02", effectiveDate); err != nil {
+		return shim.Error("Amendment effective date must use YYYY-MM-DD")
+	}
+	if _, err = time.Parse("2006-01-02", expiresOn); err != nil {
+		return shim.Error("Amendment expiration date must use YYYY-MM-DD")
+	}
+	if expiresOn < effectiveDate {
+		return shim.Error("Amendment expiration date must not precede its effective date")
+	}
+	amountMinor, err := strconv.ParseInt(strings.TrimSpace(args[3]), 10, 64)
+	if err != nil || amountMinor <= 0 || amountMinor > maxSafeMinor {
+		return shim.Error("Amendment amount must be a positive safe integer in minor currency units")
+	}
+	currency := strings.ToUpper(strings.TrimSpace(args[4]))
+	if !currencyPattern.MatchString(currency) || !supportedCurrencies[currency] {
+		return shim.Error("Amendment currency must be a supported ISO currency code")
+	}
+	documentHash := strings.ToLower(strings.TrimSpace(args[5]))
+	if !isSHA256(documentHash) {
+		return shim.Error("Amendment document hash must be a SHA-256 hash")
+	}
+	pending := &amendment{
+		ID:            amendmentID(stub.GetTxID()),
+		Date:          effectiveDate,
+		ExpiresOn:     expiresOn,
+		AmountMinor:   amountMinor,
+		Currency:      currency,
+		DocumentHash:  documentHash,
+		ProposedBy:     proposer,
+		ProposedByMSP:  mspID,
+		ProposedAt:     proposedAt,
+	}
+	if mspID == "StudentMSP" {
+		pending.StudentApprovedBy = proposer
+		pending.StudentApprovedAt = proposedAt
+	} else {
+		pending.UniversityApprovedBy = proposer
+		pending.UniversityApprovedAt = proposedAt
+	}
+	record.PendingAmendment = pending
+	record.Status = statusAmendmentProposed
+	record.UpdatedAt = proposedAt
+	return saveAgreement(stub, record, "AmendmentProposed")
+}
+
+func (t *StudentUniversityContract) decideAmendment(stub shim.ChaincodeStubInterface, args []string) peer.Response {
+	if len(args) != 2 {
+		return shim.Error("Incorrect number of arguments. Expecting agreement ID and decision")
+	}
+	decision := strings.ToLower(strings.TrimSpace(args[1]))
+	if decision != "approved" && decision != "rejected" {
+		return shim.Error("Amendment decision must be approved or rejected")
+	}
+	record, err := loadAgreement(stub, strings.TrimSpace(args[0]))
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if record.Status != statusAmendmentProposed || record.PendingAmendment == nil {
+		return shim.Error("Agreement has no pending amendment")
+	}
+	mspID, signer, resolvedAt, err := signingIdentity(stub)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if mspID != "StudentMSP" && mspID != "UniversityMSP" {
+		return shim.Error("Only agreement member organizations may decide amendments")
+	}
+	pending := record.PendingAmendment
+	if decision == "rejected" {
+		pending.State = statusRejected
+		pending.ResolvedAt = resolvedAt
+		record.Amendments = append(record.Amendments, *pending)
+		record.PendingAmendment = nil
+		record.Status = statusActive
+		record.UpdatedAt = resolvedAt
+		return saveAgreement(stub, record, "AmendmentRejected")
+	}
+	if mspID == "StudentMSP" {
+		if pending.StudentApprovedBy != "" {
+			return shim.Error("Student organization has already approved this amendment")
+		}
+		pending.StudentApprovedBy = signer
+		pending.StudentApprovedAt = resolvedAt
+	} else {
+		if pending.UniversityApprovedBy != "" {
+			return shim.Error("University organization has already approved this amendment")
+		}
+		pending.UniversityApprovedBy = signer
+		pending.UniversityApprovedAt = resolvedAt
+	}
+	if pending.StudentApprovedBy == "" || pending.UniversityApprovedBy == "" {
+		record.UpdatedAt = resolvedAt
+		return saveAgreement(stub, record, "AmendmentApproved")
+	}
+
+	if record.Revision == 0 {
+		record.Revision = 1
+	}
+	pending.State = "applied"
+	pending.SupersededRevision = record.Revision
+	pending.ActivatedRevision = record.Revision + 1
+	pending.ResolvedAt = resolvedAt
+	record.Date = pending.Date
+	record.ExpiresOn = pending.ExpiresOn
+	record.AmountMinor = pending.AmountMinor
+	record.Currency = pending.Currency
+	record.DocumentHash = pending.DocumentHash
+	record.Revision = pending.ActivatedRevision
+	record.Amendments = append(record.Amendments, *pending)
+	record.PendingAmendment = nil
+	record.Status = statusActive
+	record.UpdatedAt = resolvedAt
+	return saveAgreement(stub, record, "AmendmentApplied")
+}
+
+func (t *StudentUniversityContract) expireAgreement(stub shim.ChaincodeStubInterface, args []string) peer.Response {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		return shim.Error("Incorrect number of arguments. Expecting one agreement ID")
+	}
+	record, err := loadAgreement(stub, strings.TrimSpace(args[0]))
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if record.Status != statusActive && record.Status != statusApproved {
+		return shim.Error("Only an active agreement may expire")
+	}
+	if record.ExpiresOn == "" {
+		return shim.Error("Agreement has no expiration date")
+	}
+	mspID, signer, expiredAt, err := signingIdentity(stub)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if mspID != "StudentMSP" && mspID != "UniversityMSP" {
+		return shim.Error("Only agreement member organizations may record expiration")
+	}
+	if expiredAt[:10] < record.ExpiresOn {
+		return shim.Error("Agreement cannot expire before " + record.ExpiresOn)
+	}
+	record.Status = statusExpired
+	record.ExpiredBy = signer
+	record.ExpiredAt = expiredAt
+	record.UpdatedAt = expiredAt
+	return saveAgreement(stub, record, "AgreementExpired")
+}
+
 func (t *StudentUniversityContract) reviewAgreement(stub shim.ChaincodeStubInterface, args []string) peer.Response {
 	if len(args) != 2 {
 		return shim.Error("Incorrect number of arguments. Expecting agreement ID and decision")
@@ -325,6 +590,9 @@ func (t *StudentUniversityContract) reviewAgreement(stub shim.ChaincodeStubInter
 		return shim.Error("Only a UniversityMSP member may review agreements")
 	}
 
+	if decision == statusApproved {
+		return t.signAgreement(stub, []string{args[0]})
+	}
 	record, err := loadAgreement(stub, strings.TrimSpace(args[0]))
 	if err != nil {
 		return shim.Error(err.Error())
@@ -333,15 +601,16 @@ func (t *StudentUniversityContract) reviewAgreement(stub shim.ChaincodeStubInter
 		(strings.TrimSpace(record.StudentName) != "" || strings.TrimSpace(record.Email) != "") {
 		return shim.Error("Legacy agreement PII must be migrated before review")
 	}
-	if record.Status != "" && record.Status != statusSubmitted {
-		return shim.Error("Only submitted agreements may be reviewed")
+	if record.Status != statusPendingUniversity && record.Status != statusSubmitted {
+		return shim.Error("Only student-signed agreements may be rejected")
 	}
 	record.Status = decision
-	record.ReviewedBy = reviewerMSP
-	record.UpdatedAt, err = transactionTime(stub)
+	_, reviewer, reviewedAt, err := signingIdentity(stub)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
+	record.ReviewedBy = reviewer
+	record.UpdatedAt = reviewedAt
 
 	payload, err := json.Marshal(record)
 	if err != nil {
@@ -676,6 +945,46 @@ func requirePIIReader(stub shim.ChaincodeStubInterface) error {
 		return fmt.Errorf("organization %s is not authorized to read agreement PII", mspID)
 	}
 	return nil
+}
+
+func signingIdentity(stub shim.ChaincodeStubInterface) (string, string, string, error) {
+	mspID, err := cid.GetMSPID(stub)
+	if err != nil {
+		return "", "", "", fmt.Errorf("unable to identify signer organization: %s", err)
+	}
+	creatorID, err := cid.GetID(stub)
+	if err != nil {
+		return "", "", "", fmt.Errorf("unable to identify signer: %s", err)
+	}
+	signedAt, err := transactionTime(stub)
+	if err != nil {
+		return "", "", "", err
+	}
+	hash := sha256.Sum256([]byte(creatorID))
+	fingerprint := strings.ToUpper(hex.EncodeToString(hash[:8]))
+	return mspID, mspID + ":" + fingerprint, signedAt, nil
+}
+
+func amendmentID(transactionID string) string {
+	normalized := strings.ToUpper(strings.TrimSpace(transactionID))
+	if len(normalized) > 12 {
+		normalized = normalized[:12]
+	}
+	return "AMD-" + normalized
+}
+
+func saveAgreement(stub shim.ChaincodeStubInterface, record *agreement, eventName string) peer.Response {
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if err = stub.PutState(record.ContractID, payload); err != nil {
+		return shim.Error(err.Error())
+	}
+	if err = stub.SetEvent(eventName, payload); err != nil {
+		return shim.Error(err.Error())
+	}
+	return shim.Success(payload)
 }
 
 func studentCommitment(email, salt string) string {

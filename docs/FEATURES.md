@@ -8,7 +8,7 @@
 4. The API sends the student name, email, and random salt as Fabric transient data.
 5. Peers store those fields in the member-only agreement PII collection; public state
    receives only a salted commitment.
-6. Track the submitted agreement and its university decision in the dashboard.
+6. Sign the draft and track its university countersignature in the dashboard.
 
 Each submission receives a stable `AGR-<year>-<random>` reference, so the same student
 and university can create separate agreements for different terms or programs.
@@ -24,9 +24,17 @@ collection receive only the salted identity commitment. See
 ## University workflow
 
 University organization members enrolled with `UNIVERSITY_ENROLLMENT_SECRET` see
-submitted agreements in the review queue. An
-approval or rejection creates a new ledger version rather than replacing history. The
-chaincode independently verifies that the reviewer belongs to `UniversityMSP`.
+submitted agreements in the review queue. A countersignature or rejection creates a new ledger version rather than replacing
+history. The chaincode independently verifies that the signer belongs to
+`UniversityMSP`.
+
+## Agreement lifecycle
+
+New agreements progress from draft to student-signed, university countersigned, and
+active states. Both Fabric identity fingerprints and transaction timestamps are
+recorded. Active terms can change only through an amendment approved by both
+organizations. Applied amendments identify the superseded and activated revisions.
+See [Agreement lifecycle and amendments](AGREEMENT_LIFECYCLE.md).
 
 ## Dashboard and analytics
 

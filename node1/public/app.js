@@ -1,9 +1,9 @@
 'use strict';
 
 const previewAgreements = [
-  { id: 'AGR-2026-0248ABCD0001', student: 'Aiko Tanaka', email: 'aiko.tanaka@example.edu', university: 'Kyoto International University', amountMinor: 680000, currency: 'JPY', status: 'Approved', date: '2026-07-16', preview: true, verified: true },
-  { id: 'AGR-2026-0247BCDE0002', student: 'Haruto Sato', email: 'haruto.sato@example.edu', university: 'University of Tokyo', amountMinor: 920000, currency: 'JPY', status: 'Submitted', date: '2026-07-15', preview: true, verified: true },
-  { id: 'AGR-2026-0246CDEF0003', student: 'Mei Nakamura', email: 'mei.n@example.edu', university: 'Waseda University', amountMinor: 540000, currency: 'JPY', status: 'Submitted', date: '2026-07-14', preview: true, verified: false },
+  { id: 'AGR-2026-0248ABCD0001', student: 'Aiko Tanaka', email: 'aiko.tanaka@example.edu', university: 'Kyoto International University', amountMinor: 680000, currency: 'JPY', status: 'Active', date: '2026-07-16', preview: true, verified: true },
+  { id: 'AGR-2026-0247BCDE0002', student: 'Haruto Sato', email: 'haruto.sato@example.edu', university: 'University of Tokyo', amountMinor: 920000, currency: 'JPY', status: 'Pending University', date: '2026-07-15', preview: true, verified: true },
+  { id: 'AGR-2026-0246CDEF0003', student: 'Mei Nakamura', email: 'mei.n@example.edu', university: 'Waseda University', amountMinor: 540000, currency: 'JPY', status: 'Draft', date: '2026-07-14', preview: true, verified: false },
   { id: 'AGR-2026-0245DEFA0004', student: 'Ren Kobayashi', email: 'ren.k@example.edu', university: 'Osaka Metropolitan University', amountMinor: 760000, currency: 'JPY', status: 'Rejected', date: '2026-07-12', preview: true, verified: true }
 ];
 
@@ -21,6 +21,7 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 document.addEventListener('DOMContentLoaded', () => {
   $('#today').textContent = new Intl.DateTimeFormat('en', { month: 'long', day: 'numeric', year: 'numeric' }).format(new Date()).toUpperCase();
   $('#createForm').elements.date.valueAsDate = new Date();
+  $('#createForm').elements.expiresOn.valueAsDate = defaultExpirationDate();
   bindNavigation();
   bindAuthentication();
   bindAgreements();
@@ -189,6 +190,7 @@ function bindAgreements() {
           studentName: values.studentName.trim(),
           email: values.email.trim(),
           date: values.date,
+          expiresOn: values.expiresOn,
           amount: String(values.amount),
           currency: values.currency,
           universityName: values.university.trim(),
@@ -198,6 +200,7 @@ function bindAgreements() {
       await loadAgreements();
       form.reset();
       form.elements.date.valueAsDate = new Date();
+      form.elements.expiresOn.valueAsDate = defaultExpirationDate();
       state.documentHash = '';
       $('#createHash').textContent = 'SHA-256 fingerprint will appear here.';
       $('#createHash').classList.remove('ready');
@@ -221,7 +224,7 @@ function renderAgreements() {
       <td data-label="Student"><span class="student-cell"><strong>${escapeHtml(item.student)}</strong><small>${escapeHtml(item.email)}</small></span></td>
       <td data-label="University"><span class="university">${escapeHtml(item.university)}</span></td>
       <td data-label="Value"><span class="amount">${formatMoney(item.amountMinor, item.currency)}</span></td>
-      <td data-label="Status"><span class="status ${item.status.toLowerCase()}">${escapeHtml(item.status)}</span></td>
+      <td data-label="Status"><span class="status ${statusClass(item.status)}">${escapeHtml(item.status)}</span></td>
       <td data-label="Date">${formatDate(item.date)}</td>
       <td><button class="row-menu" type="button" aria-label="Details for ${escapeHtml(item.id)}" data-agreement="${escapeHtml(item.id)}">•••</button></td>
     </tr>`).join('');
@@ -242,24 +245,70 @@ function renderStats() {
     return;
   }
   $('[data-stat="total"]').textContent = String(state.agreements.length);
-  $('[data-stat="pending"]').textContent = String(state.agreements.filter(item => item.status === 'Submitted').length);
+  $('[data-stat="pending"]').textContent = String(state.agreements.filter(item => ['Draft', 'Pending University', 'Amendment Proposed'].includes(item.status)).length);
   $('[data-stat="value"]').textContent = compactApprovedValue(state.agreements);
   $('[data-stat="verified"]').textContent = String(state.agreements.filter(item => item.verified).length);
 }
 
 function renderReviewQueue() {
-  const submitted = state.agreements.filter(item => item.status === 'Submitted');
-  $('#reviewCount').textContent = String(submitted.length);
+  const actionable = state.agreements.filter(item => ['Draft', 'Pending University', 'Amendment Proposed'].includes(item.status));
+  $('#reviewCount').textContent = String(actionable.length);
   const universityReviewer = state.identity?.orgName === 'org1';
   $('#workflowMessage').textContent = universityReviewer
-    ? 'University review controls are enabled. Decisions are committed to the ledger.'
-    : 'Connect a University organization identity to approve or reject submitted agreements.';
-  $('#reviewQueue').innerHTML = submitted.map(item => `
+    ? 'Countersign student agreements and decide pending amendments.'
+    : 'Sign drafts and decide amendments with your Student organization identity.';
+  $('#reviewQueue').innerHTML = actionable.map(item => `
     <article class="review-item">
-      <header><strong>${escapeHtml(item.id)}</strong><small>${escapeHtml(item.student)}</small></header>
-      ${universityReviewer && !item.preview ? `<div class="review-actions"><button type="button" data-decision="Approved" data-id="${escapeHtml(item.id)}">Approve</button><button type="button" data-decision="Rejected" data-id="${escapeHtml(item.id)}">Reject</button></div>` : ''}
+      <header><strong>${escapeHtml(item.id)}</strong><small>${escapeHtml(item.status)}</small></header>
+      ${lifecycleActions(item, universityReviewer)}
     </article>`).join('');
+  $$('[data-sign]').forEach(button => button.addEventListener('click', () => signAgreement(button.dataset.sign, button)));
   $$('[data-decision]').forEach(button => button.addEventListener('click', () => decideAgreement(button.dataset.id, button.dataset.decision, button)));
+  $$('[data-amendment-decision]').forEach(button => button.addEventListener('click', () => decideAmendment(button.dataset.id, button.dataset.amendmentDecision, button)));
+}
+
+function lifecycleActions(item, universityReviewer) {
+  if (item.preview) return '';
+  if (item.status === 'Draft' && !universityReviewer) {
+    return `<div class="review-actions"><button type="button" data-sign="${escapeHtml(item.id)}">Sign draft</button></div>`;
+  }
+  if (item.status === 'Pending University' && universityReviewer) {
+    return `<div class="review-actions"><button type="button" data-sign="${escapeHtml(item.id)}">Countersign</button><button type="button" data-decision="Rejected" data-id="${escapeHtml(item.id)}">Reject</button></div>`;
+  }
+  if (item.status === 'Amendment Proposed') {
+    const alreadyApproved = universityReviewer ? item.pendingAmendment?.UniversityApprovedBy : item.pendingAmendment?.StudentApprovedBy;
+    if (!alreadyApproved) {
+      return `<div class="review-actions"><button type="button" data-amendment-decision="approved" data-id="${escapeHtml(item.id)}">Approve amendment</button><button type="button" data-amendment-decision="rejected" data-id="${escapeHtml(item.id)}">Reject</button></div>`;
+    }
+  }
+  return '';
+}
+
+async function signAgreement(id, button) {
+  button.disabled = true;
+  try {
+    await apiRequest(`/api/agreements/${encodeURIComponent(id)}/sign`, { method: 'POST', body: {} });
+    await loadAgreements();
+    showToast(`${id} signature committed.`);
+  } catch (error) {
+    showToast(error.message, true);
+    button.disabled = false;
+  }
+}
+
+async function decideAmendment(id, decision, button) {
+  button.disabled = true;
+  try {
+    await apiRequest(`/api/agreements/${encodeURIComponent(id)}/amendments/decision`, {
+      method: 'POST',
+      body: { decision }
+    });
+    await loadAgreements();
+    showToast(`Amendment ${decision}.`);
+  } catch (error) {
+    showToast(error.message, true);
+    button.disabled = false;
+  }
 }
 
 async function decideAgreement(id, decision, button) {
@@ -358,7 +407,7 @@ async function loadAgreements() {
 
 function normalizeAgreement(record) {
   const value = record.Value || record;
-  const status = String(value.Status || 'submitted');
+  const status = lifecycleStatus(value.Status);
   return {
     id: record.Key || value.Key,
     ledgerId: record.Key || value.Key,
@@ -369,8 +418,16 @@ function normalizeAgreement(record) {
       ? Number(value.AmountMinor)
       : legacyAmountMinor(value.Amount, value.Currency || 'JPY'),
     currency: String(value.Currency || 'JPY'),
-    status: status.charAt(0).toUpperCase() + status.slice(1),
+    status,
     date: value.Date,
+    expiresOn: value.ExpiresOn || '',
+    revision: Number(value.Revision || 1),
+    studentSignedBy: value.StudentSignedBy || '',
+    studentSignedAt: value.StudentSignedAt || '',
+    universitySignedBy: value.UniversitySignedBy || '',
+    universitySignedAt: value.UniversitySignedAt || '',
+    pendingAmendment: value.PendingAmendment || null,
+    amendments: value.Amendments || [],
     preview: false,
     verified: Boolean(value.DocumentHash),
     documentHash: value.DocumentHash || ''
@@ -390,6 +447,7 @@ async function showAgreementHistory(id) {
   const agreement = state.agreements.find(item => item.id === id);
   $('#historySubtitle').textContent = agreement ? `${agreement.student} · ${agreement.university}` : id;
   const list = $('#historyList');
+  renderLifecycleSummary(agreement);
   if (agreement?.preview) {
     list.innerHTML = `
       <li><strong>${escapeHtml(agreement.status)}</strong><span>Preview agreement state</span><small>${escapeHtml(agreement.date)}</small></li>
@@ -413,6 +471,68 @@ async function showAgreementHistory(id) {
   } catch (error) {
     list.innerHTML = `<li><span>${escapeHtml(error.message)}</span></li>`;
   }
+}
+
+function renderLifecycleSummary(agreement) {
+    const summary = $('#lifecycleSummary');
+    const form = $('#amendmentForm');
+    if (!agreement || agreement.preview) {
+      summary.textContent = 'Preview lifecycle data.';
+      form.hidden = true;
+      return;
+    }
+    summary.innerHTML = `<strong>${escapeHtml(agreement.status)} · revision ${agreement.revision}</strong><br>Student signature: ${escapeHtml(agreement.studentSignedBy || 'pending')}<br>University signature: ${escapeHtml(agreement.universitySignedBy || 'pending')}<br>Expires: ${escapeHtml(agreement.expiresOn || 'not configured')} · Applied amendments: ${agreement.amendments.length}`;
+    form.hidden = agreement.status !== 'Active';
+    if (!form.hidden) {
+      form.dataset.agreementId = agreement.id;
+      form.elements.date.value = agreement.date;
+      form.elements.expiresOn.value = agreement.expiresOn;
+      form.elements.amount.value = majorAmount(agreement.amountMinor, agreement.currency);
+      form.elements.currency.value = agreement.currency;
+      form.elements.documentHash.value = agreement.documentHash;
+    }
+}
+
+$('#amendmentForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const values = Object.fromEntries(new FormData(form));
+    const submit = form.querySelector('[type="submit"]');
+    submit.disabled = true;
+    try {
+      await apiRequest(`/api/agreements/${encodeURIComponent(form.dataset.agreementId)}/amendments`, {
+        method: 'POST',
+        body: values
+      });
+      await loadAgreements();
+      $('#historyDialog').close();
+      showToast('Amendment proposed for countersignature.');
+    } catch (error) {
+      setStatus($('#amendmentStatus'), error.message, 'error');
+    } finally {
+      submit.disabled = false;
+    }
+});
+
+function lifecycleStatus(value) {
+    const normalized = String(value || 'draft').toLowerCase();
+    if (normalized === 'submitted') return 'Pending University';
+    if (normalized === 'approved') return 'Active';
+    return normalized.split('_').map(part => part.charAt(0).toUpperCase() + part.slice(1)).join(' ');
+}
+
+function statusClass(value) {
+    return value.toLowerCase().replace(/\s+/g, '-');
+}
+
+function majorAmount(amountMinor, currency) {
+    return String(Number(amountMinor || 0) / (10 ** currencyScale(currency)));
+}
+
+function defaultExpirationDate() {
+  const date = new Date();
+  date.setUTCFullYear(date.getUTCFullYear() + 1);
+  return date;
 }
 
 async function apiRequest(path, options = {}) {

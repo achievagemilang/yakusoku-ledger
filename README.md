@@ -30,7 +30,8 @@ deeper documentation.
 - Student names and emails held in a member-only Fabric private data collection
 - Salted public identity commitments and transient-data identity verification
 - Client-side SHA-256 document hashing; agreement files never leave the browser
-- Submitted → approved/rejected workflow restricted to `UniversityMSP`
+- Draft → student signature → university countersignature → active lifecycle
+- Two-party amendments with superseded revision history and deterministic expiration
 - Immutable agreement version history and activity notifications
 - Role-aware Fabric identity enrollment and network administration
 - Searchable agreement registry with preview mode for portfolio demonstrations
@@ -135,6 +136,10 @@ when enrolling the network administrator. Do not expose this secret to normal us
 | `POST` | `/users` | Register/enroll a user and issue a token |
 | `GET` | `/api/agreements` | List agreements for dashboard analytics |
 | `POST` | `/api/agreements` | Submit an agreement and document fingerprint |
+| `POST` | `/api/agreements/:id/sign` | Sign or countersign an agreement |
+| `POST` | `/api/agreements/:id/amendments` | Propose new active terms |
+| `POST` | `/api/agreements/:id/amendments/decision` | Approve or reject an amendment |
+| `POST` | `/api/agreements/:id/expire` | Record date-enforced expiration |
 | `GET` | `/api/agreements/:id` | Read one agreement |
 | `GET` | `/api/agreements/:id/history` | Read its immutable audit history |
 | `POST` | `/api/agreements/:id/verify` | Verify a document fingerprint |
@@ -161,7 +166,11 @@ The runnable `node1/testAPI.sh` script contains request examples for the full wo
 | Function | Arguments | Behavior |
 | --- | --- | --- |
 | `Init` | none | Initialize or upgrade the chaincode |
-| `createAgreement` | reference, date, amount minor units, currency, university, SHA-256 plus transient PII | Submit an agreement |
+| `createAgreement` | reference, effective date, expiration date, amount minor units, currency, university, SHA-256 plus transient PII | Create a draft |
+| `signAgreement` | agreement ID | Student-sign or university-countersign |
+| `proposeAmendment` | agreement ID and proposed public terms | Propose without changing active terms |
+| `decideAmendment` | agreement ID, decision | Apply only after both-party approval |
+| `expireAgreement` | agreement ID | Record expiration after `ExpiresOn` |
 | `migrateAgreementPII` | agreement ID plus transient PII | Move current legacy PII into the private collection |
 | `verifyStudentIdentity` | agreement ID plus transient email | Verify a salted identity commitment |
 | `queryByStudentEmail` | email | Find agreements for an email |
