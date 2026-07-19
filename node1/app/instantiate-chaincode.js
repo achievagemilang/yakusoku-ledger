@@ -38,6 +38,12 @@ var instantiateChaincode = async function(peers, channelName, chaincodeName, cha
 			args: args,
 			txId: tx_id
 		};
+		if (chaincodeName === 'studentuniversity') {
+			request['collections-config'] = path.resolve(
+				__dirname,
+				'../../src/chaincode/collections-config.json'
+			);
+		}
 
 		if (functionName)
 			request.fcn = functionName;

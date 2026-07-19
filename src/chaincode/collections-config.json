@@ -1,0 +1,35 @@
+[
+  {
+    "name": "agreementPIICollection",
+    "policy": {
+      "identities": [
+        {
+          "role": {
+            "name": "member",
+            "mspId": "UniversityMSP"
+          }
+        },
+        {
+          "role": {
+            "name": "member",
+            "mspId": "StudentMSP"
+          }
+        }
+      ],
+      "policy": {
+        "1-of": [
+          {
+            "signed-by": 0
+          },
+          {
+            "signed-by": 1
+          }
+        ]
+      }
+    },
+    "requiredPeerCount": 2,
+    "maxPeerCount": 3,
+    "blockToLive": 0,
+    "memberOnlyRead": true
+  }
+]

@@ -5,7 +5,7 @@ var hfc = require('fabric-client');
 var helper = require('./helper.js');
 var logger = helper.getLogger('Query');
 
-var queryChaincode = async function(peer, channelName, chaincodeName, args, fcn, username, org_name) {
+var queryChaincode = async function(peer, channelName, chaincodeName, args, fcn, username, org_name, transientMap) {
 	try {
 		// first setup the client for this org
 		var client = await helper.getClientForOrg(org_name, username);
@@ -28,6 +28,9 @@ var queryChaincode = async function(peer, channelName, chaincodeName, args, fcn,
 			args: args,
 			txId: txID
 		};
+		if (transientMap) {
+			request.transientMap = transientMap;
+		}
 		let response_payloads = await channel.queryByChaincode(request);
 
 		if (response_payloads && response_payloads.length) {
@@ -35,9 +38,8 @@ var queryChaincode = async function(peer, channelName, chaincodeName, args, fcn,
 			if (queryError) {
 				throw queryError;
 			}
-			logger.info(response_payloads);
 			let payload = response_payloads[0].toString('utf8');
-			logger.info(payload);
+			logger.debug('Received %s chaincode query response payload(s)', response_payloads.length);
 			return payload;
 		} else {
 			logger.error('response_payloads is null');

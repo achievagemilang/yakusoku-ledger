@@ -6,7 +6,7 @@ var hfc = require('fabric-client');
 var helper = require('./helper.js');
 var logger = helper.getLogger('invoke-chaincode');
 
-var invokeChaincode = async function(peerNames, channelName, chaincodeName, fcn, args, username, org_name) {
+var invokeChaincode = async function(peerNames, channelName, chaincodeName, fcn, args, username, org_name, transientMap) {
 	logger.debug(util.format('\n============ invoke transaction on channel %s ============\n', channelName));
 	var error_message = null;
 	var tx_id_string = null;
@@ -33,6 +33,9 @@ var invokeChaincode = async function(peerNames, channelName, chaincodeName, fcn,
 			chainId: channelName,
 			txId: tx_id
 		};
+		if (transientMap) {
+			request.transientMap = transientMap;
+		}
 
 		let results = await channel.sendTransactionProposal(request);
 

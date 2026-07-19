@@ -5,7 +5,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/domain-values.test.js && node --check server.js && node --check app/helper.js && node --check app/create-channel.js && node --check app/join-channel.js && node --check app/install-chaincode.js && node --check app/instantiate-chaincode.js && node --check app/invoke-transaction.js && node --check app/query.js"
+    "test": "node test/domain-values.test.js && node --check server.js && node --check app/agreement-privacy.js && node --check app/helper.js && node --check app/create-channel.js && node --check app/join-channel.js && node --check app/install-chaincode.js && node --check app/instantiate-chaincode.js && node --check app/invoke-transaction.js && node --check app/query.js"
   },
   "keywords": [
     "fabric-client sample app",

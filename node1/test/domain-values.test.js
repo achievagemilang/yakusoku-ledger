@@ -2,6 +2,7 @@
 
 var assert = require('assert');
 var references = require('../app/agreement-reference.js');
+var privacy = require('../app/agreement-privacy.js');
 var money = require('../app/money.js');
 
 assert.deepStrictEqual(money.parseMoney('680000', 'JPY'), {
@@ -41,5 +42,46 @@ for (var i = 0; i < 1000; i++) {
 assert.strictEqual(generated.size, 1000);
 assert.strictEqual(references.isAgreementReference('invalid'), false);
 assert.strictEqual(references.isAgreementReference('AGR-2026-GENESIS01'), false);
+
+var privateDetails = privacy.createPrivateDetails(
+	'Ada Lovelace',
+	'ADA@EXAMPLE.COM',
+	function() {
+		return Buffer.alloc(32, 0xab);
+	}
+);
+assert.deepStrictEqual(privateDetails, {
+	StudentName: 'ada lovelace',
+	Email: 'ada@example.com',
+	Salt: new Array(33).join('ab')
+});
+
+var privateTransient = privacy.createTransientMap(
+	'Ada Lovelace',
+	'ADA@EXAMPLE.COM',
+	function() {
+		return Buffer.alloc(32, 0xab);
+	}
+);
+assert.deepStrictEqual(
+	JSON.parse(privateTransient.agreement_pii.toString('utf8')),
+	privateDetails
+);
+assert.strictEqual(
+	privacy.createEmailVerificationTransientMap(' ADA@EXAMPLE.COM ')
+		.student_email.toString('utf8'),
+	'ada@example.com'
+);
+assert.throws(function() {
+	privacy.createPrivateDetails('', 'ada@example.com');
+}, /studentName is required/);
+assert.throws(function() {
+	privacy.createPrivateDetails('Ada', '');
+}, /email is required/);
+assert.throws(function() {
+	privacy.createPrivateDetails('Ada', 'ada@example.com', function() {
+		return Buffer.alloc(16);
+	});
+}, /exactly 32 bytes/);
 
 console.log('Domain value tests passed');

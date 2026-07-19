@@ -27,6 +27,8 @@ deeper documentation.
 - Responsive student and university dashboard with live ledger analytics
 - Multiple agreements per student/university pair with stable `AGR-...` references
 - Exact integer minor-unit money values with explicit ISO currencies
+- Student names and emails held in a member-only Fabric private data collection
+- Salted public identity commitments and transient-data identity verification
 - Client-side SHA-256 document hashing; agreement files never leave the browser
 - Submitted → approved/rejected workflow restricted to `UniversityMSP`
 - Immutable agreement version history and activity notifications
@@ -42,9 +44,9 @@ deeper documentation.
 - **API:** Node.js/Express service using the bundled Fabric 1.4.5 SDK
 - **Authentication:** enrollment endpoint issuing Bearer JWTs
 
-The chaincode stores a deterministic agreement ID derived from the student and
-university names. Updating the same agreement preserves its prior values in Fabric's
-key history.
+The chaincode stores random agreement references and non-PII metadata in public
+channel state. Student names, emails, and per-agreement salts are distributed only to
+the Student and University organizations through a private data collection.
 
 ## Prerequisites
 
@@ -136,6 +138,8 @@ when enrolling the network administrator. Do not expose this secret to normal us
 | `GET` | `/api/agreements/:id` | Read one agreement |
 | `GET` | `/api/agreements/:id/history` | Read its immutable audit history |
 | `POST` | `/api/agreements/:id/verify` | Verify a document fingerprint |
+| `POST` | `/api/agreements/:id/identity/verify` | Verify an email through transient data |
+| `POST` | `/api/agreements/:id/privacy/migrate` | Redact current legacy PII as a Student admin |
 | `POST` | `/api/agreements/:id/review` | Approve or reject as a university member |
 | `POST` | `/channels` | Create a channel |
 | `POST` | `/channels/:channel/peers` | Join organization peers |
@@ -156,7 +160,10 @@ The runnable `node1/testAPI.sh` script contains request examples for the full wo
 
 | Function | Arguments | Behavior |
 | --- | --- | --- |
-| `Init` / `createAgreement` | reference, student, email, date, amount minor units, currency, university, SHA-256 | Submit an agreement |
+| `Init` | none | Initialize or upgrade the chaincode |
+| `createAgreement` | reference, date, amount minor units, currency, university, SHA-256 plus transient PII | Submit an agreement |
+| `migrateAgreementPII` | agreement ID plus transient PII | Move current legacy PII into the private collection |
+| `verifyStudentIdentity` | agreement ID plus transient email | Verify a salted identity commitment |
 | `queryByStudentEmail` | email | Find agreements for an email |
 | `queryByStudentName` | student name | Find all agreements for a student |
 | `queryByUniversityName` | university name | Find all agreements for a university |
@@ -178,7 +185,8 @@ docs/                   Screenshots and deeper product documentation
 ```
 
 Existing hash-keyed records and legacy `Amount` values remain readable. See the
-[v3 data migration guide](docs/MIGRATION.md) before upgrading a running network.
+[privacy design](docs/PRIVACY.md) and [migration guide](docs/MIGRATION.md) before
+upgrading a running network.
 
 ## Configuration
 

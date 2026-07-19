@@ -45,12 +45,12 @@ sleep 5
 request "$org1_token" POST /channels/channel1/peers '{"peers":["peer1","peer2"]}'
 request "$org2_token" POST /channels/channel1/peers '{"peers":["peer1","peer2"]}'
 
-chaincode='{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodePath":"chaincode","chaincodeVersion":"v3"}'
+chaincode='{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodePath":"chaincode","chaincodeVersion":"v4"}'
 request "$org1_token" POST /chaincodes "$chaincode"
 request "$org2_token" POST /chaincodes "$chaincode"
 
 request "$org1_token" POST /channels/channel1/chaincodes \
-	'{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodeVersion":"v3","fcn":"Init","args":["AGR-2026-000000000001","Genesis Student","genesis@example.com","2026-07-18","1","JPY","Clemson University",""]}'
+	'{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodeVersion":"v4","fcn":"Init","args":[]}'
 
 document_hash=$(printf 'yakusoku sample agreement' | sha256sum | cut -d ' ' -f1)
 create_response=$(request "$org2_token" POST /api/agreements \
@@ -68,6 +68,16 @@ if [ "$agreement_count" -ne 2 ]; then
 	exit 1
 fi
 agreement_id=$(printf '%s' "$agreements" | jq -er '[.[] | select(.Value.Email == "ada@example.com")][0].Key')
+history=$(request "$org2_token" GET "/api/agreements/$agreement_id/history")
+printf '%s' "$history" | jq -e '
+	.[0].Value
+	| has("StudentName") == false
+	and has("Email") == false
+	and (.StudentCommitment | test("^[a-f0-9]{64}$"))
+	' >/dev/null
+identity_response=$(request "$org2_token" POST "/api/agreements/$agreement_id/identity/verify" \
+	'{"email":"ada@example.com"}')
+printf '%s' "$identity_response" | jq -e '.verified == true' >/dev/null
 request "$org2_token" POST "/api/agreements/$agreement_id/verify" \
 	"{\"documentHash\":\"$document_hash\"}"
 request "$org1_token" POST "/api/agreements/$agreement_id/review" \

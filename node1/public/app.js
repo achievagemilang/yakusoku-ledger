@@ -362,8 +362,8 @@ function normalizeAgreement(record) {
   return {
     id: record.Key || value.Key,
     ledgerId: record.Key || value.Key,
-    student: value.StudentName,
-    email: value.Email,
+    student: String(value.StudentName || 'Private data unavailable'),
+    email: String(value.Email || (value.PrivacyVersion ? 'Private data unavailable' : '')),
     university: value.UniversityName,
     amountMinor: value.AmountMinor !== undefined
       ? Number(value.AmountMinor)

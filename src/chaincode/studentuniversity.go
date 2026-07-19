@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -21,6 +22,11 @@ const (
 	statusApproved  = "approved"
 	statusRejected  = "rejected"
 	maxSafeMinor    = int64(9007199254740991)
+	privacyVersion  = 1
+
+	agreementPIICollection = "agreementPIICollection"
+	agreementPIITransient  = "agreement_pii"
+	studentEmailTransient  = "student_email"
 )
 
 var agreementReferencePattern = regexp.MustCompile(`^AGR-[0-9]{4}-[A-F0-9]{12}$`)
@@ -39,19 +45,27 @@ var supportedCurrencies = map[string]bool{
 type StudentUniversityContract struct{}
 
 type agreement struct {
-	ContractID     string  `json:"Key"`
-	StudentName    string  `json:"StudentName"`
-	UniversityName string  `json:"UniversityName"`
-	Date           string  `json:"Date"`
-	AmountMinor    int64   `json:"AmountMinor,omitempty"`
-	Currency       string  `json:"Currency,omitempty"`
-	LegacyAmount   json.Number `json:"Amount,omitempty"`
-	Email          string  `json:"Email"`
-	DocumentHash   string  `json:"DocumentHash"`
-	Status         string  `json:"Status"`
-	CreatedBy      string  `json:"CreatedBy"`
-	ReviewedBy     string  `json:"ReviewedBy,omitempty"`
-	UpdatedAt      string  `json:"UpdatedAt"`
+	ContractID        string      `json:"Key"`
+	StudentName       string      `json:"StudentName,omitempty"`
+	UniversityName    string      `json:"UniversityName"`
+	Date              string      `json:"Date"`
+	AmountMinor       int64       `json:"AmountMinor,omitempty"`
+	Currency          string      `json:"Currency,omitempty"`
+	LegacyAmount      json.Number `json:"Amount,omitempty"`
+	Email             string      `json:"Email,omitempty"`
+	StudentCommitment string      `json:"StudentCommitment,omitempty"`
+	PrivacyVersion    int         `json:"PrivacyVersion,omitempty"`
+	DocumentHash      string      `json:"DocumentHash"`
+	Status            string      `json:"Status"`
+	CreatedBy         string      `json:"CreatedBy"`
+	ReviewedBy        string      `json:"ReviewedBy,omitempty"`
+	UpdatedAt         string      `json:"UpdatedAt"`
+}
+
+type privateAgreementDetails struct {
+	StudentName string `json:"StudentName"`
+	Email       string `json:"Email"`
+	Salt        string `json:"Salt"`
 }
 
 type queryRecord struct {
@@ -68,10 +82,10 @@ type historyRecord struct {
 
 func (t *StudentUniversityContract) Init(stub shim.ChaincodeStubInterface) peer.Response {
 	_, args := stub.GetFunctionAndParameters()
-	if len(args) != 8 {
-		return shim.Error("Incorrect number of arguments. Expecting 8")
+	if len(args) != 0 {
+		return shim.Error("Init does not accept arguments")
 	}
-	return t.createAgreement(stub, args, true)
+	return shim.Success(nil)
 }
 
 func (t *StudentUniversityContract) Invoke(stub shim.ChaincodeStubInterface) peer.Response {
@@ -79,7 +93,11 @@ func (t *StudentUniversityContract) Invoke(stub shim.ChaincodeStubInterface) pee
 
 	switch function {
 	case "initStudentUniversity", "createAgreement":
-		return t.createAgreement(stub, args, false)
+		return t.createAgreement(stub, args)
+	case "migrateAgreementPII":
+		return t.migrateAgreementPII(stub, args)
+	case "verifyStudentIdentity":
+		return t.verifyStudentIdentity(stub, args)
 	case "queryByStudentEmail":
 		return t.queryByStudentEmail(stub, args)
 	case "queryByStudentName":
@@ -103,11 +121,11 @@ func (t *StudentUniversityContract) Invoke(stub shim.ChaincodeStubInterface) pee
 	}
 }
 
-func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInterface, args []string, lifecycleInit bool) peer.Response {
-	if len(args) != 8 {
-		return shim.Error("Incorrect number of arguments. Expecting 8")
+func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInterface, args []string) peer.Response {
+	if len(args) != 6 {
+		return shim.Error("Incorrect number of arguments. Expecting 6 public agreement fields")
 	}
-	for i, arg := range args[:7] {
+	for i, arg := range args[:5] {
 		if strings.TrimSpace(arg) == "" {
 			return shim.Error(fmt.Sprintf("Argument %d must be a non-empty string", i+1))
 		}
@@ -118,33 +136,35 @@ func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInter
 		return shim.Error("1st argument must be an agreement reference like AGR-2026-12AB34CD56EF")
 	}
 
-	studentName := strings.ToLower(strings.TrimSpace(args[1]))
-	studentEmail := strings.ToLower(strings.TrimSpace(args[2]))
-	currentDate := strings.TrimSpace(args[3])
+	currentDate := strings.TrimSpace(args[1])
 	if _, err := time.Parse("2006-01-02", currentDate); err != nil {
-		return shim.Error("4th argument must be an ISO date in YYYY-MM-DD format")
+		return shim.Error("2nd argument must be an ISO date in YYYY-MM-DD format")
 	}
 
-	amountMinor, err := strconv.ParseInt(strings.TrimSpace(args[4]), 10, 64)
+	amountMinor, err := strconv.ParseInt(strings.TrimSpace(args[2]), 10, 64)
 	if err != nil || amountMinor <= 0 || amountMinor > maxSafeMinor {
-		return shim.Error("5th argument must be a positive safe integer in minor currency units")
+		return shim.Error("3rd argument must be a positive safe integer in minor currency units")
 	}
-	currency := strings.ToUpper(strings.TrimSpace(args[5]))
+	currency := strings.ToUpper(strings.TrimSpace(args[3]))
 	if !currencyPattern.MatchString(currency) || !supportedCurrencies[currency] {
-		return shim.Error("6th argument must be a supported ISO currency code")
+		return shim.Error("4th argument must be a supported ISO currency code")
 	}
-	universityName := strings.ToLower(strings.TrimSpace(args[6]))
-	documentHash := strings.ToLower(strings.TrimSpace(args[7]))
+	universityName := strings.ToLower(strings.TrimSpace(args[4]))
+	documentHash := strings.ToLower(strings.TrimSpace(args[5]))
 	if documentHash != "" && !isSHA256(documentHash) {
-		return shim.Error("8th argument must be an empty value or a SHA-256 hash")
+		return shim.Error("6th argument must be an empty value or a SHA-256 hash")
 	}
 
 	creatorMSP, err := cid.GetMSPID(stub)
 	if err != nil {
 		return shim.Error("Unable to identify transaction creator: " + err.Error())
 	}
-	if !lifecycleInit && creatorMSP != "StudentMSP" {
+	if creatorMSP != "StudentMSP" {
 		return shim.Error("Only a StudentMSP member may submit agreements")
+	}
+	privateDetails, err := privateDetailsFromTransient(stub)
+	if err != nil {
+		return shim.Error(err.Error())
 	}
 	updatedAt, err := transactionTime(stub)
 	if err != nil {
@@ -160,26 +180,129 @@ func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInter
 	}
 
 	record := agreement{
-		ContractID:     contractID,
-		StudentName:    studentName,
-		UniversityName: universityName,
-		Date:           currentDate,
-		AmountMinor:    amountMinor,
-		Currency:       currency,
-		Email:          studentEmail,
-		DocumentHash:   documentHash,
-		Status:         statusSubmitted,
-		CreatedBy:      creatorMSP,
-		UpdatedAt:      updatedAt,
+		ContractID:        contractID,
+		UniversityName:    universityName,
+		Date:              currentDate,
+		AmountMinor:       amountMinor,
+		Currency:          currency,
+		StudentCommitment: studentCommitment(privateDetails.Email, privateDetails.Salt),
+		PrivacyVersion:    privacyVersion,
+		DocumentHash:      documentHash,
+		Status:            statusSubmitted,
+		CreatedBy:         creatorMSP,
+		UpdatedAt:         updatedAt,
+	}
+	privatePayload, err := json.Marshal(privateDetails)
+	if err != nil {
+		return shim.Error(err.Error())
 	}
 	payload, err := json.Marshal(record)
 	if err != nil {
 		return shim.Error(err.Error())
 	}
+	if err = stub.PutPrivateData(agreementPIICollection, contractID, privatePayload); err != nil {
+		return shim.Error("Unable to store private agreement details: " + err.Error())
+	}
 	if err = stub.PutState(contractID, payload); err != nil {
 		return shim.Error(err.Error())
 	}
 	if err = stub.SetEvent("AgreementSubmitted", payload); err != nil {
+		return shim.Error(err.Error())
+	}
+	return shim.Success(payload)
+}
+
+func (t *StudentUniversityContract) migrateAgreementPII(stub shim.ChaincodeStubInterface, args []string) peer.Response {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		return shim.Error("Incorrect number of arguments. Expecting one agreement ID")
+	}
+	creatorMSP, err := cid.GetMSPID(stub)
+	if err != nil {
+		return shim.Error("Unable to identify transaction creator: " + err.Error())
+	}
+	if creatorMSP != "StudentMSP" {
+		return shim.Error("Only a StudentMSP member may migrate agreement PII")
+	}
+	record, err := loadAgreement(stub, strings.TrimSpace(args[0]))
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if record.PrivacyVersion >= privacyVersion {
+		return shim.Error("Agreement PII has already been migrated")
+	}
+	if strings.TrimSpace(record.StudentName) == "" || strings.TrimSpace(record.Email) == "" {
+		return shim.Error("Legacy agreement does not contain migratable student PII")
+	}
+	privateDetails, err := privateDetailsFromTransient(stub)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if privateDetails.StudentName != strings.ToLower(strings.TrimSpace(record.StudentName)) ||
+		privateDetails.Email != strings.ToLower(strings.TrimSpace(record.Email)) {
+		return shim.Error("Transient PII does not match the legacy agreement")
+	}
+
+	privatePayload, err := json.Marshal(privateDetails)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if err = stub.PutPrivateData(agreementPIICollection, record.ContractID, privatePayload); err != nil {
+		return shim.Error("Unable to store private agreement details: " + err.Error())
+	}
+	record.StudentCommitment = studentCommitment(privateDetails.Email, privateDetails.Salt)
+	record.PrivacyVersion = privacyVersion
+	record.StudentName = ""
+	record.Email = ""
+	record.UpdatedAt, err = transactionTime(stub)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	payload, err := json.Marshal(record)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if err = stub.PutState(record.ContractID, payload); err != nil {
+		return shim.Error(err.Error())
+	}
+	if err = stub.SetEvent("AgreementPIIMigrated", payload); err != nil {
+		return shim.Error(err.Error())
+	}
+	return shim.Success(payload)
+}
+
+func (t *StudentUniversityContract) verifyStudentIdentity(stub shim.ChaincodeStubInterface, args []string) peer.Response {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		return shim.Error("Incorrect number of arguments. Expecting one agreement ID")
+	}
+	if err := requirePIIReader(stub); err != nil {
+		return shim.Error(err.Error())
+	}
+	record, err := loadAgreement(stub, strings.TrimSpace(args[0]))
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	if record.PrivacyVersion < privacyVersion {
+		return shim.Error("Legacy agreement PII must be migrated before private verification")
+	}
+	details, err := loadPrivateDetails(stub, record.ContractID)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	transient, err := stub.GetTransient()
+	if err != nil {
+		return shim.Error("Unable to read transient data: " + err.Error())
+	}
+	emailBytes, ok := transient[studentEmailTransient]
+	if !ok || strings.TrimSpace(string(emailBytes)) == "" {
+		return shim.Error("Transient student_email is required")
+	}
+	candidate := studentCommitment(strings.ToLower(strings.TrimSpace(string(emailBytes))), details.Salt)
+	verified := subtle.ConstantTimeCompare([]byte(candidate), []byte(record.StudentCommitment)) == 1
+	payload, err := json.Marshal(map[string]interface{}{
+		"agreementId": record.ContractID,
+		"verified":    verified,
+	})
+	if err != nil {
 		return shim.Error(err.Error())
 	}
 	return shim.Success(payload)
@@ -205,6 +328,10 @@ func (t *StudentUniversityContract) reviewAgreement(stub shim.ChaincodeStubInter
 	record, err := loadAgreement(stub, strings.TrimSpace(args[0]))
 	if err != nil {
 		return shim.Error(err.Error())
+	}
+	if record.PrivacyVersion < privacyVersion &&
+		(strings.TrimSpace(record.StudentName) != "" || strings.TrimSpace(record.Email) != "") {
+		return shim.Error("Legacy agreement PII must be migrated before review")
 	}
 	if record.Status != "" && record.Status != statusSubmitted {
 		return shim.Error("Only submitted agreements may be reviewed")
@@ -254,11 +381,11 @@ func (t *StudentUniversityContract) verifyDocument(stub shim.ChaincodeStubInterf
 }
 
 func (t *StudentUniversityContract) queryByStudentEmail(stub shim.ChaincodeStubInterface, args []string) peer.Response {
-	return t.queryByField(stub, args, "Email", "email")
+	return t.queryByPrivateField(stub, args, "Email", "email")
 }
 
 func (t *StudentUniversityContract) queryByStudentName(stub shim.ChaincodeStubInterface, args []string) peer.Response {
-	return t.queryByField(stub, args, "StudentName", "student name")
+	return t.queryByPrivateField(stub, args, "StudentName", "student name")
 }
 
 func (t *StudentUniversityContract) queryByUniversityName(stub shim.ChaincodeStubInterface, args []string) peer.Response {
@@ -283,9 +410,56 @@ func (t *StudentUniversityContract) queryByField(stub shim.ChaincodeStubInterfac
 	return shim.Success(results)
 }
 
+func (t *StudentUniversityContract) queryByPrivateField(stub shim.ChaincodeStubInterface, args []string, field, description string) peer.Response {
+	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
+		return shim.Error("Incorrect number of arguments. Expecting one " + description)
+	}
+	if err := requirePIIReader(stub); err != nil {
+		return shim.Error(err.Error())
+	}
+	expected := strings.ToLower(strings.TrimSpace(args[0]))
+	iterator, err := stub.GetStateByRange("", "")
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	defer iterator.Close()
+
+	records := make([]queryRecord, 0)
+	for iterator.HasNext() {
+		result, err := iterator.Next()
+		if err != nil {
+			return shim.Error(err.Error())
+		}
+		record, err := agreementWithPrivateData(stub, result.Value)
+		if err != nil {
+			return shim.Error(err.Error())
+		}
+		value := record.StudentName
+		if field == "Email" {
+			value = record.Email
+		}
+		if strings.ToLower(strings.TrimSpace(value)) != expected {
+			continue
+		}
+		payload, err := json.Marshal(record)
+		if err != nil {
+			return shim.Error(err.Error())
+		}
+		records = append(records, queryRecord{Key: result.Key, Value: json.RawMessage(payload)})
+	}
+	payload, err := json.Marshal(records)
+	if err != nil {
+		return shim.Error(err.Error())
+	}
+	return shim.Success(payload)
+}
+
 func (t *StudentUniversityContract) queryAllAgreements(stub shim.ChaincodeStubInterface, args []string) peer.Response {
 	if len(args) != 0 {
 		return shim.Error("queryAllAgreements does not accept arguments")
+	}
+	if err := requirePIIReader(stub); err != nil {
+		return shim.Error(err.Error())
 	}
 	iterator, err := stub.GetStateByRange("", "")
 	if err != nil {
@@ -299,7 +473,15 @@ func (t *StudentUniversityContract) queryAllAgreements(stub shim.ChaincodeStubIn
 		if err != nil {
 			return shim.Error(err.Error())
 		}
-		records = append(records, queryRecord{Key: result.Key, Value: json.RawMessage(result.Value)})
+		record, err := agreementWithPrivateData(stub, result.Value)
+		if err != nil {
+			return shim.Error(err.Error())
+		}
+		payload, err := json.Marshal(record)
+		if err != nil {
+			return shim.Error(err.Error())
+		}
+		records = append(records, queryRecord{Key: result.Key, Value: json.RawMessage(payload)})
 	}
 	payload, err := json.Marshal(records)
 	if err != nil {
@@ -315,6 +497,15 @@ func (t *StudentUniversityContract) getAgreement(stub shim.ChaincodeStubInterfac
 	record, err := loadAgreement(stub, strings.TrimSpace(args[0]))
 	if err != nil {
 		return shim.Error(err.Error())
+	}
+	if err = requirePIIReader(stub); err != nil {
+		return shim.Error(err.Error())
+	}
+	if record.PrivacyVersion >= privacyVersion {
+		record, err = hydrateAgreement(stub, record)
+		if err != nil {
+			return shim.Error(err.Error())
+		}
 	}
 	payload, err := json.Marshal(record)
 	if err != nil {
@@ -342,6 +533,9 @@ func (t *StudentUniversityContract) getHistoryForAgreement(stub shim.ChaincodeSt
 }
 
 func agreementHistory(stub shim.ChaincodeStubInterface, contractID string) peer.Response {
+	if err := requirePIIReader(stub); err != nil {
+		return shim.Error(err.Error())
+	}
 	iterator, err := stub.GetHistoryForKey(contractID)
 	if err != nil {
 		return shim.Error(err.Error())
@@ -403,6 +597,90 @@ func loadAgreement(stub shim.ChaincodeStubInterface, contractID string) (*agreem
 		return nil, err
 	}
 	return record, nil
+}
+
+func agreementWithPrivateData(stub shim.ChaincodeStubInterface, payload []byte) (*agreement, error) {
+	record := &agreement{}
+	if err := json.Unmarshal(payload, record); err != nil {
+		return nil, err
+	}
+	if record.PrivacyVersion < privacyVersion {
+		return record, nil
+	}
+	return hydrateAgreement(stub, record)
+}
+
+func hydrateAgreement(stub shim.ChaincodeStubInterface, record *agreement) (*agreement, error) {
+	payload, err := stub.GetPrivateData(agreementPIICollection, record.ContractID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read private agreement details: %s", err)
+	}
+	if payload == nil {
+		return record, nil
+	}
+	details := &privateAgreementDetails{}
+	if err = json.Unmarshal(payload, details); err != nil {
+		return nil, fmt.Errorf("invalid private agreement details for %s: %s", record.ContractID, err)
+	}
+	record.StudentName = details.StudentName
+	record.Email = details.Email
+	return record, nil
+}
+
+func loadPrivateDetails(stub shim.ChaincodeStubInterface, contractID string) (*privateAgreementDetails, error) {
+	payload, err := stub.GetPrivateData(agreementPIICollection, contractID)
+	if err != nil {
+		return nil, fmt.Errorf("unable to read private agreement details: %s", err)
+	}
+	if payload == nil {
+		return nil, fmt.Errorf("private agreement details are unavailable for %s", contractID)
+	}
+	details := &privateAgreementDetails{}
+	if err = json.Unmarshal(payload, details); err != nil {
+		return nil, fmt.Errorf("invalid private agreement details for %s: %s", contractID, err)
+	}
+	return details, nil
+}
+
+func privateDetailsFromTransient(stub shim.ChaincodeStubInterface) (*privateAgreementDetails, error) {
+	transient, err := stub.GetTransient()
+	if err != nil {
+		return nil, fmt.Errorf("unable to read transient data: %s", err)
+	}
+	payload, ok := transient[agreementPIITransient]
+	if !ok || len(payload) == 0 {
+		return nil, fmt.Errorf("transient agreement_pii is required")
+	}
+	details := &privateAgreementDetails{}
+	if err = json.Unmarshal(payload, details); err != nil {
+		return nil, fmt.Errorf("transient agreement_pii must be valid JSON: %s", err)
+	}
+	details.StudentName = strings.ToLower(strings.TrimSpace(details.StudentName))
+	details.Email = strings.ToLower(strings.TrimSpace(details.Email))
+	details.Salt = strings.ToLower(strings.TrimSpace(details.Salt))
+	if details.StudentName == "" || details.Email == "" {
+		return nil, fmt.Errorf("private student name and email must be non-empty strings")
+	}
+	if !isSHA256(details.Salt) {
+		return nil, fmt.Errorf("private salt must be 32 random bytes encoded as hexadecimal")
+	}
+	return details, nil
+}
+
+func requirePIIReader(stub shim.ChaincodeStubInterface) error {
+	mspID, err := cid.GetMSPID(stub)
+	if err != nil {
+		return fmt.Errorf("unable to identify transaction creator: %s", err)
+	}
+	if mspID != "StudentMSP" && mspID != "UniversityMSP" {
+		return fmt.Errorf("organization %s is not authorized to read agreement PII", mspID)
+	}
+	return nil
+}
+
+func studentCommitment(email, salt string) string {
+	hash := sha256.Sum256([]byte(salt + ":" + strings.ToLower(strings.TrimSpace(email))))
+	return hex.EncodeToString(hash[:])
 }
 
 func agreementID(studentName, universityName string) string {

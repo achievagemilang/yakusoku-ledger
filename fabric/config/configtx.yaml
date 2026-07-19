@@ -82,7 +82,7 @@ Capabilities:
 
 
     Application: &ApplicationCapabilities
-        V1_1: true
+        V1_2: true
 
 
 

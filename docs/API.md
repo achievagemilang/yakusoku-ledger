@@ -34,6 +34,40 @@ converted to exact integer minor units before it reaches Fabric: `6800.25 USD` b
 
 Supported currencies are AUD, CAD, EUR, GBP, INR, JPY, KRW, and USD.
 
+The API converts `studentName` and `email` into Fabric transient data with a fresh
+32-byte salt. They are stored in `agreementPIICollection`, not in transaction
+arguments, channel blocks, public state, events, or public agreement history.
+
+### Verify a student identity
+
+```http
+POST /api/agreements/:agreementId/identity/verify
+Content-Type: application/json
+
+{ "email": "aiko@example.edu" }
+```
+
+The email is sent to chaincode through transient data. Chaincode combines it with the
+private salt and compares the result with the public salted commitment. The response
+contains only the agreement ID and `verified`.
+
+### Migrate legacy PII
+
+```http
+POST /api/agreements/:agreementId/privacy/migrate
+Content-Type: application/json
+
+{
+  "studentName": "Aiko Tanaka",
+  "email": "aiko@example.edu"
+}
+```
+
+This endpoint requires a Student organization administrator. Chaincode verifies that
+the supplied details match the current legacy record before moving them into the
+private collection and redacting the current public state. Historical blocks remain
+unchanged.
+
 ### Verify a document
 
 ```http

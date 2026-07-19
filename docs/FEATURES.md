@@ -5,14 +5,21 @@
 1. Enroll a Student organization identity.
 2. Enter the agreement details and choose the supporting document.
 3. The browser calculates the document's SHA-256 fingerprint locally.
-4. Only the fingerprint and agreement metadata are submitted to Fabric.
-5. Track the submitted agreement and its university decision in the dashboard.
+4. The API sends the student name, email, and random salt as Fabric transient data.
+5. Peers store those fields in the member-only agreement PII collection; public state
+   receives only a salted commitment.
+6. Track the submitted agreement and its university decision in the dashboard.
 
 Each submission receives a stable `AGR-<year>-<random>` reference, so the same student
 and university can create separate agreements for different terms or programs.
 
 The source document is never uploaded to Yakusoku Ledger. A later copy can be selected
 in the verification panel; its local fingerprint is compared with the immutable value.
+
+Student and University organization peers can resolve private student details for
+authorized dashboard queries. Orderers, channel blocks, and organizations outside the
+collection receive only the salted identity commitment. See
+[Privacy architecture](PRIVACY.md) for the threat model and retention limitations.
 
 ## University workflow
 

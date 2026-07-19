@@ -22,6 +22,7 @@ var invoke = require('./app/invoke-transaction.js');
 var join = require('./app/join-channel.js');
 var query = require('./app/query.js');
 var agreementReferences = require('./app/agreement-reference.js');
+var agreementPrivacy = require('./app/agreement-privacy.js');
 var moneyValues = require('./app/money.js');
 
 var app = express();
@@ -232,10 +233,17 @@ app.post('/api/agreements', function(req, res, next) {
 		return res.status(400).json({success: false, message: err.message});
 	}
 	var agreementReference = agreementReferences.createAgreementReference();
+	var transientMap;
+	try {
+		transientMap = agreementPrivacy.createTransientMap(
+			req.body.studentName,
+			req.body.email
+		);
+	} catch (err) {
+		return res.status(400).json({success: false, message: err.message});
+	}
 	var args = [
 		agreementReference,
-		String(req.body.studentName),
-		String(req.body.email),
 		String(req.body.date),
 		parsedMoney.amountMinor,
 		parsedMoney.currency,
@@ -250,13 +258,74 @@ app.post('/api/agreements', function(req, res, next) {
 			'createAgreement',
 			args,
 			req.username,
-			req.orgname
+			req.orgname,
+			transientMap
 		).then(function(transactionId) {
 			return {
 				success: true,
 				agreementId: agreementReference,
 				transactionId: transactionId
 			};
+		});
+	});
+});
+
+app.post('/api/agreements/:agreementId/identity/verify', function(req, res, next) {
+	if (!requireField(res, req.body.email, 'email')) {
+		return;
+	}
+	var transientMap;
+	try {
+		transientMap = agreementPrivacy.createEmailVerificationTransientMap(req.body.email);
+	} catch (err) {
+		return res.status(400).json({success: false, message: err.message});
+	}
+	sendFabricJsonResult(res, next, req.orgname, function() {
+		return query.queryChaincode(
+			'peer1',
+			hfc.getConfigSetting('channelName'),
+			'studentuniversity',
+			[req.params.agreementId],
+			'verifyStudentIdentity',
+			req.username,
+			req.orgname,
+			transientMap
+		);
+	});
+});
+
+app.post('/api/agreements/:agreementId/privacy/migrate', requireAdmin, function(req, res, next) {
+	if (req.orgname !== 'org2') {
+		return res.status(403).json({
+			success: false,
+			message: 'Only a Student organization administrator may migrate agreement PII'
+		});
+	}
+	if (!requireField(res, req.body.studentName, 'studentName') ||
+		!requireField(res, req.body.email, 'email')) {
+		return;
+	}
+	var transientMap;
+	try {
+		transientMap = agreementPrivacy.createTransientMap(
+			req.body.studentName,
+			req.body.email
+		);
+	} catch (err) {
+		return res.status(400).json({success: false, message: err.message});
+	}
+	sendFabricResult(res, next, req.orgname, function() {
+		return invoke.invokeChaincode(
+			['peer1', 'peer2'],
+			hfc.getConfigSetting('channelName'),
+			'studentuniversity',
+			'migrateAgreementPII',
+			[req.params.agreementId],
+			req.username,
+			req.orgname,
+			transientMap
+		).then(function(transactionId) {
+			return {success: true, transactionId: transactionId};
 		});
 	});
 });
@@ -396,7 +465,10 @@ app.post('/channels/:channelName/chaincodes', requireAdmin, function(req, res, n
 	if (!requireField(res, peers, 'peers') ||
 		!requireField(res, chaincodeName, 'chaincodeName') ||
 		!requireField(res, chaincodeVersion, 'chaincodeVersion') ||
-		!requireField(res, args, 'args')) {
+		!Array.isArray(args)) {
+		if (!res.headersSent) {
+			res.status(400).json(errorResponse('\'args\''));
+		}
 		return;
 	}
 	sendFabricResult(res, next, req.orgname, function() {
