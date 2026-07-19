@@ -189,7 +189,7 @@ var getAdminUser = function(userOrg) {
 	});
 };
 
-var getRegisteredUsers = function(username, userOrg, isJson) {
+var getRegisteredUsers = function(username, userOrg, isJson, registration) {
 	var member;
 	var client = getClientForOrg(userOrg);
 	var enrollmentSecret = null;
@@ -204,12 +204,20 @@ var getRegisteredUsers = function(username, userOrg, isJson) {
 				logger.info('Successfully loaded member from persistence');
 				return client.setUserContext(user).then(() => user);
 			} else {
+				if (!registration) {
+					throw new Error('User is not enrolled; a valid invitation is required');
+				}
 				let caClient = caClients[userOrg];
 				return getAdminUser(userOrg).then(function(adminUserObj) {
 					member = adminUserObj;
 					return caClient.register({
 						enrollmentID: username,
-						affiliation: userOrg + '.department1'
+						affiliation: userOrg + '.department1',
+						maxEnrollments: 1,
+						attrs: [
+							{name: 'yakusoku.role', value: registration.role, ecert: true},
+							{name: 'yakusoku.invitation', value: registration.invitationId, ecert: true}
+						]
 					}, member);
 				}).then((secret) => {
 					enrollmentSecret = secret;
@@ -249,6 +257,7 @@ var getRegisteredUsers = function(username, userOrg, isJson) {
 			var response = {
 				success: true,
 				message: username + ' enrolled Successfully',
+				certificateRole: registration ? registration.role : null
 			};
 			return response;
 		}
@@ -257,6 +266,32 @@ var getRegisteredUsers = function(username, userOrg, isJson) {
 		logger.error(util.format('Failed to get registered user: %s, error: %s', username, err.stack ? err.stack : err));
 		return '' + err;
 	});
+};
+
+var isUserEnrolled = function(username, userOrg) {
+	var client = getClientForOrg(userOrg);
+	return hfc.newDefaultKeyValueStore({
+		path: getKeyStoreForOrg(getOrgName(userOrg))
+	}).then((store) => {
+		client.setStateStore(store);
+		return client.getUserContext(username, true).then((user) => {
+			return Boolean(user && user.isEnrolled());
+		});
+	});
+};
+
+var revokeUser = function(username, userOrg, reason) {
+	var caClient = caClients[userOrg];
+	return getAdminUser(userOrg).then(function(adminUser) {
+		return caClient.revoke({
+			enrollmentID: username,
+			reason: 'cessationOfOperation'
+		}, adminUser);
+	});
+};
+
+var removeUserCredentials = function(username, userOrg) {
+	return fs.remove(path.join(getKeyStoreForOrg(getOrgName(userOrg)), username));
 };
 
 var getOrgAdmin = function(userOrg) {
@@ -317,5 +352,8 @@ exports.ORGS = ORGS;
 exports.newPeers = newPeers;
 exports.newEventHubs = newEventHubs;
 exports.getRegisteredUsers = getRegisteredUsers;
+exports.isUserEnrolled = isUserEnrolled;
+exports.revokeUser = revokeUser;
+exports.removeUserCredentials = removeUserCredentials;
 exports.getOrgAdmin = getOrgAdmin;
 exports.runForOrg = runForOrg;

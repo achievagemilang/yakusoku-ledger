@@ -26,6 +26,7 @@ document.addEventListener('DOMContentLoaded', () => {
   bindAuthentication();
   bindAgreements();
   bindDocuments();
+  bindMembership();
   renderAgreements();
   updateIdentityUI();
 });
@@ -94,10 +95,8 @@ function bindAuthentication() {
       username: String(values.get('username')).trim(),
       orgName: values.get('orgName')
     };
-    const secret = String(values.get('adminSecret') || '');
-    if (secret) body.adminSecret = secret;
-    const organizationSecret = String(values.get('organizationSecret') || '');
-    if (organizationSecret) body.organizationSecret = organizationSecret;
+    const invitationCode = String(values.get('invitationCode') || '');
+    if (invitationCode) body.invitationCode = invitationCode;
 
     try {
       const response = await apiRequest('/users', { method: 'POST', body, authenticated: false });
@@ -107,7 +106,8 @@ function bindAuthentication() {
       state.identity = {
         username: body.username,
         orgName: body.orgName,
-        role: claims.role || 'user'
+        role: claims.role || 'user',
+        memberRole: claims.memberRole || response.memberRole || 'member'
       };
       localStorage.setItem('yakusoku.token', state.token);
       localStorage.setItem('yakusoku.identity', JSON.stringify(state.identity));
@@ -116,6 +116,7 @@ function bindAuthentication() {
       addActivity('Identity connected', `${body.username} joined through ${body.orgName}.`, '✓', 'green');
       showToast(`Connected as ${body.username}`);
       await loadAgreements();
+      if (state.identity.role === 'admin') await loadMembership();
       setTimeout(() => dialog.close(), 450);
     } catch (error) {
       setStatus(status, error.message, 'error');
@@ -162,7 +163,86 @@ function updateIdentityUI() {
     $('.preview-banner p').textContent = 'Sample records are shown until you authenticate. Ledger mutations always require a verified identity.';
     $('.preview-banner button').textContent = 'Connect now';
   }
+  $('#memberManagement').hidden = !connected || state.identity.role !== 'admin';
+  if (connected && state.identity.role === 'admin') {
+    const roleSelect = $('#invitationForm').elements.role;
+    [...roleSelect.options].forEach(option => {
+      option.hidden = state.identity.orgName === 'org1'
+        ? option.value === 'student'
+        : option.value === 'university_reviewer';
+    });
+    if (roleSelect.selectedOptions[0]?.hidden) {
+      roleSelect.value = state.identity.orgName === 'org1'
+        ? 'university_reviewer'
+        : 'student';
+    }
+  }
   renderReviewQueue();
+}
+
+function bindMembership() {
+  $('#refreshMembers').addEventListener('click', loadMembership);
+  $('#invitationForm').addEventListener('submit', async event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const body = Object.fromEntries(new FormData(form));
+    body.expiresInMinutes = Number(body.expiresInMinutes);
+    try {
+      const result = await apiRequest('/api/members/invitations', {method: 'POST', body});
+      $('#invitationToken').textContent = result.token;
+      $('#invitationToken').classList.add('ready');
+      setStatus($('#invitationStatus'), 'Copy this token now; it is not stored in plaintext.', 'success');
+      await loadMembership();
+    } catch (error) {
+      setStatus($('#invitationStatus'), error.message, 'error');
+    }
+  });
+}
+
+async function loadMembership() {
+  if (state.identity?.role !== 'admin') return;
+  try {
+    const [members, invitations, events] = await Promise.all([
+      apiRequest('/api/members'),
+      apiRequest('/api/members/invitations'),
+      apiRequest('/api/members/events')
+    ]);
+    $('#memberList').innerHTML = members.map(member => `
+      <article class="management-item"><strong>${escapeHtml(member.username)}</strong>${escapeHtml(member.role)} · ${escapeHtml(member.status)}
+      ${member.status === 'active' && member.username !== state.identity.username ? `<div class="management-actions"><button type="button" data-revoke-member="${escapeHtml(member.username)}">Revoke member</button></div>` : ''}</article>`).join('');
+    $('#invitationList').innerHTML = invitations.map(invitation => `
+      <article class="management-item"><strong>${escapeHtml(invitation.id)}</strong>${escapeHtml(invitation.role)} · ${escapeHtml(invitation.status)}
+      ${['issued', 'claimed', 'expired', 'revoked'].includes(invitation.status) ? `<div class="management-actions"><button type="button" data-reissue="${escapeHtml(invitation.id)}">Reissue</button>${['issued', 'claimed'].includes(invitation.status) ? `<button type="button" data-revoke-invitation="${escapeHtml(invitation.id)}">Revoke</button>` : ''}</div>` : ''}</article>`).join('');
+    $('#identityEventList').innerHTML = events.slice().reverse().slice(0, 12).map(event => `
+      <article class="management-item"><strong>${escapeHtml(event.type)}</strong>${escapeHtml(event.subject || event.invitationId || '')} · ${escapeHtml(event.timestamp)}</article>`).join('');
+    $$('[data-revoke-member]').forEach(button => button.addEventListener('click', () => revokeMember(button.dataset.revokeMember)));
+    $$('[data-revoke-invitation]').forEach(button => button.addEventListener('click', () => changeInvitation(button.dataset.revokeInvitation, 'revoke')));
+    $$('[data-reissue]').forEach(button => button.addEventListener('click', () => changeInvitation(button.dataset.reissue, 'reissue')));
+  } catch (error) {
+    showToast(error.message, true);
+  }
+}
+
+async function revokeMember(username) {
+  await apiRequest(`/api/members/${encodeURIComponent(username)}/revoke`, {
+    method: 'POST',
+    body: {reason: 'Revoked from member management'}
+  });
+  await loadMembership();
+  showToast(`${username} was revoked.`);
+}
+
+async function changeInvitation(invitationId, action) {
+  const body = action === 'reissue' ? {expiresInMinutes: 60} : {reason: 'Revoked from member management'};
+  const result = await apiRequest(`/api/members/invitations/${encodeURIComponent(invitationId)}/${action}`, {
+    method: 'POST',
+    body
+  });
+  if (result.token) {
+    $('#invitationToken').textContent = result.token;
+    $('#invitationToken').classList.add('ready');
+  }
+  await loadMembership();
 }
 
 function bindAgreements() {

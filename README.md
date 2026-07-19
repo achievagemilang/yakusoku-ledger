@@ -34,6 +34,7 @@ deeper documentation.
 - Two-party amendments with superseded revision history and deterministic expiration
 - Immutable agreement version history and activity notifications
 - Role-aware Fabric identity enrollment and network administration
+- Single-use expiring invitations, certificate roles, member revocation, and audit events
 - Searchable agreement registry with preview mode for portfolio demonstrations
 
 ## Architecture
@@ -84,8 +85,6 @@ until the complete Fabric API is running.
    ```bash
    cd node1
    export JWT_SECRET="$(openssl rand -hex 32)"
-   export ADMIN_ENROLLMENT_SECRET="$(openssl rand -hex 32)"
-   export UNIVERSITY_ENROLLMENT_SECRET="$(openssl rand -hex 32)"
    node server.js
    ```
 
@@ -95,16 +94,22 @@ until the complete Fabric API is running.
    curl http://localhost:4000/health
    ```
 
-4. Open the dashboard at [http://localhost:4000](http://localhost:4000).
+4. Create one-time local bootstrap invitations, then open the dashboard:
+
+   ```bash
+   cd node1
+   node app/invitation-cli.js create org1 organization_admin 60
+   node app/invitation-cli.js create org2 organization_admin 60
+   ```
+
+   Enroll each administrator with its returned token at
+   [http://localhost:4000](http://localhost:4000).
 
 5. Run the complete enrollment, channel, deployment, invoke, verification, approval,
    and query workflow:
 
    ```bash
    cd node1
-   # Use the same values exported in the API terminal:
-   export ADMIN_ENROLLMENT_SECRET="<API terminal value>"
-   export UNIVERSITY_ENROLLMENT_SECRET="<API terminal value>"
    ./testAPI.sh
    ```
 
@@ -133,7 +138,8 @@ when enrolling the network administrator. Do not expose this secret to normal us
 
 | Method | Path | Purpose |
 | --- | --- | --- |
-| `POST` | `/users` | Register/enroll a user and issue a token |
+| `POST` | `/users` | Enroll with a single-use invitation and issue a token |
+| `GET/POST` | `/api/members/*` | Manage invitations, members, revocation, and audit events |
 | `GET` | `/api/agreements` | List agreements for dashboard analytics |
 | `POST` | `/api/agreements` | Submit an agreement and document fingerprint |
 | `POST` | `/api/agreements/:id/sign` | Sign or countersign an agreement |
@@ -202,12 +208,13 @@ upgrading a running network.
 - `HOST` and `PORT` override the API listener.
 - `JWT_SECRET` sets the signing secret. If omitted, a random development secret is
   created on startup.
-- `ADMIN_ENROLLMENT_SECRET` authorizes creation of administrator tokens. Without it,
-  privileged network-management routes remain unavailable.
-- `UNIVERSITY_ENROLLMENT_SECRET` controls who can enroll into `UniversityMSP` and
-  receive agreement review privileges.
+- `IDENTITY_GOVERNANCE_STORE` places invitation, membership, and audit state on
+  durable storage instead of the default `node1/tmp` path.
 - `KEY_VALUE_STORE` overrides the Fabric client credential store.
 - `TARGET_NETWORK` selects an alternate `node1/app/network-config-<name>.json`.
+
+See [Identity governance](docs/IDENTITY_GOVERNANCE.md) for certificate roles,
+bootstrap, revocation, and recovery requirements.
 
 ## License
 

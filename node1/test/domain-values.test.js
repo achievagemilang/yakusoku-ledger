@@ -1,9 +1,15 @@
 'use strict';
 
 var assert = require('assert');
+var fs = require('fs');
+var path = require('path');
 var references = require('../app/agreement-reference.js');
 var privacy = require('../app/agreement-privacy.js');
 var money = require('../app/money.js');
+var governanceStore = path.join(__dirname, 'identity-governance.test.json');
+process.env.IDENTITY_GOVERNANCE_STORE = governanceStore;
+if (fs.existsSync(governanceStore)) fs.unlinkSync(governanceStore);
+var governance = require('../app/identity-governance.js');
 
 assert.deepStrictEqual(money.parseMoney('680000', 'JPY'), {
 	amountMinor: '680000',
@@ -83,5 +89,21 @@ assert.throws(function() {
 		return Buffer.alloc(16);
 	});
 }, /exactly 32 bytes/);
+
+var issued = governance.createInvitation('org2', 'student', 60, 'admin');
+assert.strictEqual(/^[A-Za-z0-9_-]+$/.test(issued.token), true);
+assert.strictEqual(issued.invitation.status, 'issued');
+var claimed = governance.claimInvitation(issued.token, 'org2', 'student-1');
+assert.strictEqual(claimed.status, 'claimed');
+var member = governance.completeEnrollment(claimed.id, 'student-1');
+assert.strictEqual(member.role, 'student');
+assert.strictEqual(member.status, 'active');
+assert.throws(function() {
+	governance.claimInvitation(issued.token, 'org2', 'student-2');
+}, /already used/);
+governance.revokeMember('org2', 'student-1', 'admin', 'test');
+assert.strictEqual(governance.getMember('org2', 'student-1').status, 'revoked');
+assert.strictEqual(governance.listEvents('org2').length, 4);
+fs.unlinkSync(governanceStore);
 
 console.log('Domain value tests passed');

@@ -62,9 +62,10 @@ checks also appear in the activity feed as browser notifications.
 
 | Identity | Capabilities |
 | --- | --- |
-| Student organization member | Submit, browse, verify, and audit agreements |
-| University organization member | All read operations plus approve/reject |
-| Network administrator | Channel, peer, chaincode installation, and instantiation |
+| Student certificate | Submit, sign, amend, browse, verify, and audit agreements |
+| University reviewer certificate | Countersign, review, amend, browse, verify, and audit |
+| Organization administrator certificate | Member invitations and revocation plus organization workflows |
 
-The network administrator secret only grants API lifecycle permissions. Agreement
-review authorization is enforced from the transaction creator's Fabric MSP.
+Roles are embedded as Fabric CA certificate attributes and checked by chaincode.
+Single-use expiring invitations replace shared organization enrollment secrets. See
+[Invitation and identity governance](IDENTITY_GOVERNANCE.md).

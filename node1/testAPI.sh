@@ -1,23 +1,24 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "$0")"
+
 command -v jq >/dev/null || {
 	echo "jq is required: https://jqlang.github.io/jq/"
 	exit 1
 }
-: "${ADMIN_ENROLLMENT_SECRET:?Set ADMIN_ENROLLMENT_SECRET to the value used by the API}"
-: "${UNIVERSITY_ENROLLMENT_SECRET:?Set UNIVERSITY_ENROLLMENT_SECRET to the value used by the API}"
-
 api=http://localhost:4000
 
 enroll() {
 	curl --fail --silent --show-error -X POST "$api/users" \
 		-H "content-type: application/json" \
-		-d "{\"username\":\"$1\",\"orgName\":\"$2\",\"adminSecret\":\"$ADMIN_ENROLLMENT_SECRET\",\"organizationSecret\":\"$3\"}"
+		-d "{\"username\":\"$1\",\"orgName\":\"$2\",\"invitationCode\":\"$3\"}"
 }
 
-org1_response=$(enroll network-admin-org1 org1 "$UNIVERSITY_ENROLLMENT_SECRET")
-org2_response=$(enroll network-admin-org2 org2 "")
+org1_invitation=$(node app/invitation-cli.js create org1 organization_admin 60 | jq -er .token)
+org2_invitation=$(node app/invitation-cli.js create org2 organization_admin 60 | jq -er .token)
+org1_response=$(enroll network-admin-org1 org1 "$org1_invitation")
+org2_response=$(enroll network-admin-org2 org2 "$org2_invitation")
 org1_token=$(printf '%s' "$org1_response" | jq -er .token)
 org2_token=$(printf '%s' "$org2_response" | jq -er .token)
 
@@ -45,12 +46,12 @@ sleep 5
 request "$org1_token" POST /channels/channel1/peers '{"peers":["peer1","peer2"]}'
 request "$org2_token" POST /channels/channel1/peers '{"peers":["peer1","peer2"]}'
 
-chaincode='{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodePath":"chaincode","chaincodeVersion":"v5"}'
+chaincode='{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodePath":"chaincode","chaincodeVersion":"v6"}'
 request "$org1_token" POST /chaincodes "$chaincode"
 request "$org2_token" POST /chaincodes "$chaincode"
 
 request "$org1_token" POST /channels/channel1/chaincodes \
-	'{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodeVersion":"v5","fcn":"Init","args":[]}'
+	'{"peers":["peer1","peer2"],"chaincodeName":"studentuniversity","chaincodeVersion":"v6","fcn":"Init","args":[]}'
 
 document_hash=$(printf 'yakusoku sample agreement' | sha256sum | cut -d ' ' -f1)
 create_response=$(request "$org2_token" POST /api/agreements \

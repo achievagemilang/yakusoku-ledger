@@ -3,6 +3,41 @@
 The web dashboard uses the domain endpoints below. All require a token returned by
 `POST /users`; lifecycle endpoints additionally require an administrator token.
 
+## Identity enrollment
+
+First-time enrollment requires an administrator-issued, single-use invitation:
+
+```http
+POST /users
+Content-Type: application/json
+
+{
+  "username": "aiko",
+  "orgName": "org2",
+  "invitationCode": "<one-time token>"
+}
+```
+
+The response includes `memberRole` and a token. Existing active invited members can
+request a new session without resubmitting the used invitation.
+
+## Member administration
+
+Organization administrators can use:
+
+| Method | Path | Purpose |
+| --- | --- | --- |
+| `GET` | `/api/members` | List members and revocation state |
+| `GET` | `/api/members/invitations` | List invitation metadata |
+| `POST` | `/api/members/invitations` | Create a single-use invitation |
+| `POST` | `/api/members/invitations/:id/revoke` | Revoke an unused invitation |
+| `POST` | `/api/members/invitations/:id/reissue` | Replace an invitation |
+| `POST` | `/api/members/:username/revoke` | Revoke CA and API access |
+| `GET` | `/api/members/events` | Read identity governance events |
+
+Invitation creation accepts `role` and `expiresInMinutes`. The plaintext token is
+returned only in that response.
+
 ## Agreements
 
 ### List agreements

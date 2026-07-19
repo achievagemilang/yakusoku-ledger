@@ -212,6 +212,9 @@ func (t *StudentUniversityContract) createAgreement(stub shim.ChaincodeStubInter
 	if creatorMSP != "StudentMSP" {
 		return shim.Error("Only a StudentMSP member may submit agreements")
 	}
+	if err = requireOrganizationRole(stub, creatorMSP); err != nil {
+		return shim.Error(err.Error())
+	}
 	privateDetails, err := privateDetailsFromTransient(stub)
 	if err != nil {
 		return shim.Error(err.Error())
@@ -274,6 +277,9 @@ func (t *StudentUniversityContract) migrateAgreementPII(stub shim.ChaincodeStubI
 	}
 	if creatorMSP != "StudentMSP" {
 		return shim.Error("Only a StudentMSP member may migrate agreement PII")
+	}
+	if err = requireOrganizationRole(stub, creatorMSP); err != nil {
+		return shim.Error(err.Error())
 	}
 	record, err := loadAgreement(stub, strings.TrimSpace(args[0]))
 	if err != nil {
@@ -376,6 +382,9 @@ func (t *StudentUniversityContract) signAgreement(stub shim.ChaincodeStubInterfa
 	if err != nil {
 		return shim.Error(err.Error())
 	}
+	if err = requireOrganizationRole(stub, mspID); err != nil {
+		return shim.Error(err.Error())
+	}
 
 	switch record.Status {
 	case statusDraft:
@@ -424,6 +433,9 @@ func (t *StudentUniversityContract) proposeAmendment(stub shim.ChaincodeStubInte
 	}
 	if mspID != "StudentMSP" && mspID != "UniversityMSP" {
 		return shim.Error("Only agreement member organizations may propose amendments")
+	}
+	if err = requireOrganizationRole(stub, mspID); err != nil {
+		return shim.Error(err.Error())
 	}
 	effectiveDate := strings.TrimSpace(args[1])
 	expiresOn := strings.TrimSpace(args[2])
@@ -494,6 +506,9 @@ func (t *StudentUniversityContract) decideAmendment(stub shim.ChaincodeStubInter
 	if mspID != "StudentMSP" && mspID != "UniversityMSP" {
 		return shim.Error("Only agreement member organizations may decide amendments")
 	}
+	if err = requireOrganizationRole(stub, mspID); err != nil {
+		return shim.Error(err.Error())
+	}
 	pending := record.PendingAmendment
 	if decision == "rejected" {
 		pending.State = statusRejected
@@ -563,6 +578,9 @@ func (t *StudentUniversityContract) expireAgreement(stub shim.ChaincodeStubInter
 	if mspID != "StudentMSP" && mspID != "UniversityMSP" {
 		return shim.Error("Only agreement member organizations may record expiration")
 	}
+	if err = requireOrganizationRole(stub, mspID); err != nil {
+		return shim.Error(err.Error())
+	}
 	if expiredAt[:10] < record.ExpiresOn {
 		return shim.Error("Agreement cannot expire before " + record.ExpiresOn)
 	}
@@ -588,6 +606,9 @@ func (t *StudentUniversityContract) reviewAgreement(stub shim.ChaincodeStubInter
 	}
 	if reviewerMSP != "UniversityMSP" {
 		return shim.Error("Only a UniversityMSP member may review agreements")
+	}
+	if err = requireOrganizationRole(stub, reviewerMSP); err != nil {
+		return shim.Error(err.Error())
 	}
 
 	if decision == statusApproved {
@@ -944,7 +965,27 @@ func requirePIIReader(stub shim.ChaincodeStubInterface) error {
 	if mspID != "StudentMSP" && mspID != "UniversityMSP" {
 		return fmt.Errorf("organization %s is not authorized to read agreement PII", mspID)
 	}
-	return nil
+	return requireOrganizationRole(stub, mspID)
+}
+
+func requireOrganizationRole(stub shim.ChaincodeStubInterface, mspID string) error {
+	role, found, err := cid.GetAttributeValue(stub, "yakusoku.role")
+	if err != nil {
+		return fmt.Errorf("unable to read yakusoku.role certificate attribute: %s", err)
+	}
+	if !found {
+		return fmt.Errorf("identity certificate does not contain yakusoku.role")
+	}
+	if role == "organization_admin" {
+		return nil
+	}
+	if mspID == "StudentMSP" && role == "student" {
+		return nil
+	}
+	if mspID == "UniversityMSP" && role == "university_reviewer" {
+		return nil
+	}
+	return fmt.Errorf("certificate role %s is not authorized for %s", role, mspID)
 }
 
 func signingIdentity(stub shim.ChaincodeStubInterface) (string, string, string, error) {
